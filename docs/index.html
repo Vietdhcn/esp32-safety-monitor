@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101b2b">
+  <meta name="description" content="Theo dõi cảm biến lửa, khí gas, nhiệt độ, độ ẩm và điều khiển quạt ESP32S 30P.">
+  <title>Trạm giám sát an toàn</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">◈</span><span>TRẠM GIÁM SÁT <small>ESP32S 30P</small></span></div>
+      <button id="sign-out" class="text-button" type="button" hidden>Đăng xuất</button>
+    </header>
+
+    <main>
+      <section class="intro" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">BẢNG ĐIỀU KHIỂN / THIẾT BỊ 01</p>
+          <h1 id="page-title">Giám sát an toàn<br><em>theo thời gian thực.</em></h1>
+          <p class="intro-copy">Theo dõi tín hiệu cháy, khí gas và môi trường. Điều khiển relay quạt khi hệ thống an toàn.</p>
+        </div>
+        <div class="connection" aria-live="polite">
+          <span id="connection-dot" class="connection-dot"></span>
+          <div><strong id="connection-label">Chưa kết nối</strong><small id="last-updated">Chưa có dữ liệu từ thiết bị</small></div>
+        </div>
+      </section>
+
+      <section id="setup-message" class="notice" hidden>
+        <strong>Chưa cấu hình Firebase</strong>
+        <p>Điền thông tin dự án vào <code>docs/config.js</code>, tạo tài khoản người dùng và áp dụng Database Rules theo README.</p>
+      </section>
+
+      <section id="login-panel" class="login-panel" aria-labelledby="login-title" hidden>
+        <div><p class="eyebrow">TRUY CẬP BẢO VỆ</p><h2 id="login-title">Đăng nhập để xem thiết bị</h2><p>Dùng tài khoản chủ sở hữu đã tạo trong Firebase Authentication.</p></div>
+        <form id="login-form">
+          <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required>
+          <label for="password">Mật khẩu</label><input id="password" name="password" type="password" autocomplete="current-password" required>
+          <button id="login-button" class="primary-button" type="submit">Đăng nhập</button>
+          <p id="login-error" class="form-error" role="alert"></p>
+        </form>
+      </section>
+
+      <div id="dashboard" hidden>
+        <section class="section-heading"><div><p class="eyebrow">TỔNG QUAN</p><h2>Trạng thái hiện tại</h2></div><span id="safe-badge" class="badge badge-muted">Chờ dữ liệu</span></section>
+        <section class="metric-grid" aria-label="Trạng thái cảm biến và thiết bị">
+          <article class="metric-card"><div class="card-top"><span class="icon" aria-hidden="true">♨</span><span class="card-index">01 / CẢM BIẾN</span></div><h3>Ngọn lửa</h3><strong id="flame-value">—</strong><p id="flame-detail">Chưa có dữ liệu</p></article>
+          <article class="metric-card"><div class="card-top"><span class="icon" aria-hidden="true">◇</span><span class="card-index">02 / CẢM BIẾN</span></div><h3>Khí gas</h3><strong id="gas-alarm-value">—</strong><p id="gas-alarm-detail">Chưa có dữ liệu</p></article>
+          <article class="metric-card"><div class="card-top"><span class="icon" aria-hidden="true">◌</span><span class="card-index">03 / RELAY</span></div><h3>Quạt thông gió</h3><strong id="fan-value">—</strong><p id="fan-detail">Chưa có dữ liệu</p></article>
+          <article class="metric-card"><div class="card-top"><span class="icon" aria-hidden="true">°</span><span class="card-index">04 / MÔI TRƯỜNG</span></div><h3>Nhiệt độ</h3><strong id="temperature-value">—</strong><p id="temperature-detail">Cần lắp cảm biến DHT</p></article>
+          <article class="metric-card"><div class="card-top"><span class="icon" aria-hidden="true">≋</span><span class="card-index">05 / MÔI TRƯỜNG</span></div><h3>Độ ẩm</h3><strong id="humidity-value">—</strong><p id="humidity-detail">Cần lắp cảm biến DHT</p></article>
+        </section>
+
+        <section class="detail-grid">
+          <article class="panel gas-panel" aria-labelledby="gas-title">
+            <div class="panel-title"><div><p class="eyebrow">MQ-2 / TÍN HIỆU ANALOG</p><h2 id="gas-title">Mức khí gas tương đối</h2></div><strong id="gas-percent" class="big-reading">—</strong></div>
+            <div id="gas-meter" class="meter" role="progressbar" aria-label="Tín hiệu analog MQ-2" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="gas-fill"></span></div>
+            <div class="meter-scale"><span>0</span><span>25</span><span>50</span><span>75</span><span>100%</span></div>
+            <p id="gas-raw" class="reading-note">Giá trị ADC: — / 4095</p>
+            <p class="explain">Đây là tỷ lệ tín hiệu ADC để tham khảo, không phải nồng độ ppm. Cảnh báo gas lấy từ chân DO và ngưỡng chỉnh trên module MQ-2.</p>
+          </article>
+          <article class="panel control-panel" aria-labelledby="control-title">
+            <p class="eyebrow">ĐIỀU KHIỂN / RELAY</p><h2 id="control-title">Quạt thông gió</h2>
+            <p>Quạt tự bật khi có cảnh báo gas. Bạn có thể bật hoặc tắt thủ công khi trạng thái thiết bị còn mới và không có cảnh báo.</p>
+            <div class="control-row"><span id="fan-mode">Chưa có trạng thái</span><button id="fan-button" class="primary-button" type="button" disabled>Bật quạt</button></div>
+            <p id="command-status" class="reading-note" role="status">Đang chờ kết nối.</p>
+          </article>
+        </section>
+      </div>
+    </main>
+    <footer>TRẠM GIÁM SÁT AN TOÀN <span>ESP32S 30P · FLAME · MQ-2 · DHT11</span></footer>
+  </div>
+</body>
+</html>

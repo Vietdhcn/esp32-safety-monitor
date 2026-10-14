@@ -1,0 +1,8 @@
+{
+  "name": "giam-sat-an-toan-esp32s-30p",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

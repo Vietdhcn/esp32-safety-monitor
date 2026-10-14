@@ -1,0 +1,3 @@
+firmware/ESP32Safety/secrets.h
+.deps/
+node_modules/
