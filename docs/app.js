@@ -1,5 +1,5 @@
-import { firebaseConfig, deviceId, adminUid } from './config.js';
-import { normalizeTelemetry, gasPercent, isStale, canSetFan, isLocalDemo, createDemoTelemetry, modeKeys, canControl, canMute, hasAlarm, isMuted, validCommand, commandProgress } from './dashboard-model.js';
+import { firebaseConfig, deviceId } from './config.js';
+import { normalizeTelemetry, gasPercent, isStale, isLocalDemo, createDemoTelemetry, modeKeys, canControl, canMute, isMuted, validCommand, commandProgress } from './dashboard-model.js';
 
 const $ = id => document.getElementById(id);
 const setupMessage = $('setup-message');
@@ -11,11 +11,11 @@ const demoMode = isLocalDemo(pageUrl);
 let telemetry = normalizeTelemetry();
 let unsubscribeTelemetry = null;
 let database = null;
-let isAdmin = false;
 let pending = null;
 let sending = false;
 let commandMessage = '';
 let sendCommand = async () => {};
+let speedDraft = null;
 const modeOutput = { alarmLedMode: 'alarmLedOn', statusLedMode: 'statusLedOn', buzzerMode: 'buzzerOn' };
 
 function showReading(id, value, suffix = '') {
@@ -26,13 +26,13 @@ function render() {
   const stale = isStale(telemetry.updatedAt);
   const alarm = telemetry.flameDetected === true || telemetry.gasAlarm === true;
   $('connection-dot').className = `connection-dot ${stale ? 'alert' : 'online'}`;
-  $('connection-label').textContent = demoMode ? 'Mô phỏng trên PC' : stale ? 'Thiết bị ngoại tuyến' : alarm ? 'Có cảnh báo' : 'Đang kết nối';
+  $('connection-label').textContent = demoMode ? 'Mô phỏng trên PC' : stale ? 'Thiết bị ngoại tuyến' : alarm ? 'Có cảnh báo' : 'Đã kết nối';
   $('last-updated').textContent = demoMode ? 'Dữ liệu mẫu, không kết nối ESP32' : telemetry.updatedAt == null ? 'Chưa có dữ liệu từ thiết bị' :
     `Cập nhật lúc ${new Date(telemetry.updatedAt).toLocaleString('vi-VN')}`;
 
   const badge = $('safe-badge');
   badge.className = `badge ${stale ? 'badge-muted' : alarm ? 'badge-danger' : 'badge-safe'}`;
-  badge.textContent = demoMode ? alarm ? 'Mô phỏng: cảnh báo' : 'Mô phỏng: an toàn' : stale ? 'Dữ liệu cũ' : alarm ? 'Cảnh báo' : 'Bình thường';
+  badge.textContent = demoMode ? alarm ? 'Mô phỏng: cảnh báo' : 'Mô phỏng: an toàn' : stale ? 'Dữ liệu cũ' : telemetry.flameDetected && telemetry.gasAlarm ? 'Cảnh báo lửa và gas' : telemetry.flameDetected ? 'Cảnh báo lửa' : telemetry.gasAlarm ? 'Cảnh báo gas' : 'Bình thường';
 
   showReading('flame-value', stale || telemetry.flameDetected == null ? null : telemetry.flameDetected ? 'Phát hiện' : 'An toàn');
   showReading('gas-alarm-value', stale || telemetry.gasAlarm == null ? null : telemetry.gasAlarm ? 'Phát hiện' : 'An toàn');
@@ -60,23 +60,20 @@ function render() {
 
 function renderControls(stale, alarm) {
   const muted = isMuted(telemetry);
-  const disabled = telemetry.alarmDisabled === true;
   const progress = commandProgress(pending, telemetry);
   if (progress === 'applied') { commandMessage = 'ESP32 đã áp dụng lệnh.'; pending = null; }
   if (progress === 'timeout') { commandMessage = 'Chưa nhận xác nhận từ ESP32 sau 20 giây. Kiểm tra trạng thái trước khi thử lại.'; pending = null; }
   const busy = sending || pending != null;
   $('fan-button').disabled = busy || !canControl(telemetry, 'fanOn');
   $('fan-button').textContent = telemetry.fanOn ? 'Tắt quạt' : 'Bật quạt';
-  $('fan-mode').textContent = stale || telemetry.fanOn == null ? 'Chưa có dữ liệu mới' : telemetry.fanOn ? 'Ngõ ra đang bật' : 'Ngõ ra đang tắt';
-  $('automation-status').textContent = disabled ? 'Cảnh báo tự động đã bị Admin tắt. Đang dùng điều khiển thủ công.' :
-    'Cảm biến được ưu tiên khi có cảnh báo. Quạt tự bật khi phát hiện gas.';
-  $('suppression-banner').hidden = !muted && !disabled;
-  $('suppression-banner').textContent = muted ? `Đang tạm tắt tất cả · còn ${Math.max(0, Math.ceil((telemetry.muteUntil - Date.now()) / 1000))} giây.` :
-    'Admin đã tắt cảnh báo tự động. Hệ thống sẽ không tự bật còi, đèn hoặc quạt khi phát hiện nguy cơ.';
+  $('fan-mode').textContent = stale || telemetry.fanOn == null ? 'Chưa có dữ liệu mới' : telemetry.gasAlarm ? 'Tự bật khi có gas' : telemetry.fanOn ? 'Ngõ ra đang bật' : 'Ngõ ra đang tắt';
+  $('automation-status').textContent = 'LED lửa và LED gas theo riêng từng cảm biến. Còi báo khi có nguy cơ; quạt tự bật khi có gas.';
+  $('suppression-banner').hidden = !muted;
+  $('suppression-banner').textContent = `Đang tạm tắt đầu ra · còn ${Math.max(0, Math.ceil((telemetry.muteUntil - Date.now()) / 1000))} giây. Cảm biến vẫn được theo dõi.`;
   for (const key of modeKeys) {
     const actual = telemetry[modeOutput[key]];
     $(key + '-state').textContent = stale || actual == null ? '—' : muted ? 'Tạm tắt' :
-      alarm && !disabled && key !== 'statusLedMode' ? 'Đang cảnh báo' : actual ? 'Đang bật' : 'Đang tắt';
+      ((key === 'alarmLedMode' && telemetry.flameDetected) || (key === 'statusLedMode' && telemetry.gasAlarm) || (key === 'buzzerMode' && alarm)) ? 'Đang cảnh báo' : actual ? 'Đang bật' : 'Đang tắt';
     for (const value of ['auto', 'on', 'off']) {
       const button = $(key + '-' + value);
       button.disabled = busy || !canControl(telemetry, key);
@@ -84,19 +81,19 @@ function renderControls(stale, alarm) {
     }
   }
   const speedAllowed = canControl(telemetry, 'fanSpeedPct');
-  $('fan-speed').disabled = !speedAllowed || busy;
-  $('speed-button').disabled = !speedAllowed || busy;
-  $('speed-help').textContent = telemetry.fanSpeedSupported === true ? demoMode ?
-    'Mô phỏng PWM trên PC. Relay thực tế chỉ bật/tắt được.' : 'Mức PWM điều khiển; không phải tốc độ RPM đo được.' :
-    'Relay 5V chỉ hỗ trợ bật/tắt. Cần mạch công suất PWM để chỉnh tốc độ.';
-  $('fan-speed-value').textContent = telemetry.fanSpeedSupported === true && !stale ? `${telemetry.fanSpeedPct ?? 0}%` : 'Bật / Tắt';
+  if (!speedAllowed) speedDraft = null;
+  $('fan-speed').disabled = busy || !speedAllowed;
+  $('speed-button').disabled = busy || !speedAllowed;
+  if (speedDraft == null) $('fan-speed').value = String(telemetry.fanSpeedPct ?? 100);
+  $('fan-speed-value').textContent = telemetry.fanSpeedSupported === true && !stale ? `${speedDraft ?? telemetry.fanSpeedPct ?? 100}%${speedDraft == null ? '' : ' (chưa áp dụng)'}` : '—';
+  $('speed-help').textContent = telemetry.gasAlarm && !stale ?
+    'Gas đang báo: quạt tự chạy 100%. Có thể tạm tắt đầu ra trong 30 giây.' : telemetry.fanSpeedSupported === true ?
+    'Mức PWM đặt vào mạch điều khiển quạt; không phải tốc độ RPM đo được.' :
+    'Cần firmware mới và mạch motor hỗ trợ PWM để chỉnh tốc độ.';
   $('mute-button').disabled = busy || !canMute(telemetry);
-  $('admin-controls').hidden = !isAdmin;
-  $('admin-toggle').disabled = busy || stale || telemetry.controlsVersion !== 2;
-  $('admin-toggle').textContent = disabled ? 'Bật lại cảnh báo tự động' : 'Tắt cảnh báo tự động';
   const help = stale ? 'Cần dữ liệu mới từ ESP32 để điều khiển.' : telemetry.controlsVersion !== 2 ?
     'Cần nạp firmware mới để dùng điều khiển đèn, còi và tạm tắt.' : muted ? 'Các ngõ ra đang tạm tắt. Hết 30 giây sẽ trở lại chế độ trước đó.' :
-    alarm && !disabled ? 'Đang ưu tiên cảnh báo. Có thể tạm tắt tất cả 30 giây.' : demoMode ?
+    alarm ? 'Đang ưu tiên đầu ra cảnh báo tương ứng. Có thể tạm tắt 30 giây.' : demoMode ?
     'Các nút chỉ điều khiển dữ liệu mô phỏng trên PC.' : 'Sẵn sàng nhận lệnh.';
   $('command-status').textContent = pending ? 'Đã gửi lệnh, đang chờ ESP32 xác nhận…' : commandMessage || help;
 }
@@ -104,7 +101,6 @@ function renderControls(stale, alarm) {
 const required = ['apiKey', 'authDomain', 'databaseURL', 'projectId', 'appId'];
 if (demoMode) {
   const demoState = { manualFan: false, gasAlarm: false, flameDetected: false };
-  isAdmin = true;
   dashboard.hidden = false;
   $('demo-notice').hidden = false;
   const updateDemo = () => {
@@ -148,17 +144,15 @@ if (demoMode) {
       render();
     }, error => {
       telemetry = normalizeTelemetry();
-      $('command-status').textContent = `Không đọc được dữ liệu: ${error.code || 'lỗi kết nối'}`;
+      commandMessage = `Không đọc được dữ liệu: ${error.code || 'lỗi kết nối'}`;
       render();
     });
   }
 
   onAuthStateChanged(auth, user => {
     const loggedIn = Boolean(user);
-    isAdmin = user?.uid === adminUid;
     pending = null;
     commandMessage = '';
-    $('admin-controls').hidden = !isAdmin;
     loginPanel.hidden = loggedIn;
     dashboard.hidden = !loggedIn;
     $('sign-out').hidden = !loggedIn;
@@ -167,6 +161,7 @@ if (demoMode) {
       if (unsubscribeTelemetry) unsubscribeTelemetry();
       unsubscribeTelemetry = null;
       telemetry = normalizeTelemetry();
+      speedDraft = null;
       $('connection-dot').className = 'connection-dot';
       $('connection-label').textContent = 'Chưa đăng nhập';
       $('last-updated').textContent = 'Đăng nhập để xem thiết bị';
@@ -211,23 +206,21 @@ if (demoMode) {
 }
 
 $('fan-button').addEventListener('click', () => {
-  if (canControl(telemetry, 'fanOn')) return sendCommand({ fanOn: !telemetry.fanOn });
+  if (canControl(telemetry, 'fanOn')) return sendCommand(telemetry.fanOn ? { fanOn: false } :
+    { fanOn: true, ...(telemetry.fanSpeedSupported === true && telemetry.fanSpeedPct === 0 ? { fanSpeedPct: 100 } : {}) });
+});
+$('fan-speed').addEventListener('input', () => { speedDraft = Number($('fan-speed').value); render(); });
+$('speed-button').addEventListener('click', () => {
+  const value = speedDraft ?? Number($('fan-speed').value);
+  if (!canControl(telemetry, 'fanSpeedPct') || !validCommand('fanSpeedPct', value)) return;
+  speedDraft = null;
+  return sendCommand({ fanSpeedPct: value, fanOn: value > 0 });
 });
 for (const key of modeKeys) for (const value of ['auto', 'on', 'off']) {
   $(key + '-' + value).addEventListener('click', () => {
     if (canControl(telemetry, key) && validCommand(key, value)) return sendCommand({ [key]: value });
   });
 }
-$('fan-speed').addEventListener('input', () => { $('fan-speed-value').textContent = `${$('fan-speed').value}% (chưa áp dụng)`; });
-$('speed-button').addEventListener('click', () => {
-  const value = Number($('fan-speed').value);
-  if (canControl(telemetry, 'fanSpeedPct') && validCommand('fanSpeedPct', value)) return sendCommand({ fanSpeedPct: value, fanOn: value > 0 });
-});
 $('mute-button').addEventListener('click', () => {
   if (canMute(telemetry)) return sendCommand({ muteRequestedAt: true });
-});
-$('admin-toggle').addEventListener('click', () => {
-  if (!isAdmin || isStale(telemetry.updatedAt) || telemetry.controlsVersion !== 2) return;
-  const alarmDisabled = !telemetry.alarmDisabled;
-  return sendCommand(alarmDisabled ? { alarmDisabled, fanOn: false, alarmLedMode: 'off', statusLedMode: 'off', buzzerMode: 'off' } : { alarmDisabled });
 });

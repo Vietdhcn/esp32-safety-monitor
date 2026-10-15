@@ -13,7 +13,7 @@ export function normalizeTelemetry(value = {}) {
     alarmLedMode: mode(data.alarmLedMode), statusLedMode: mode(data.statusLedMode), buzzerMode: mode(data.buzzerMode),
     fanSpeedSupported: boolean(data.fanSpeedSupported), fanSpeedPct: measured(data.fanSpeedPct, 0, 100),
     controlsVersion: data.controlsVersion === 2 ? 2 : null,
-    alarmDisabled: boolean(data.alarmDisabled), muteUntil: measured(data.muteUntil, 0, Number.MAX_SAFE_INTEGER),
+    muteUntil: measured(data.muteUntil, 0, Number.MAX_SAFE_INTEGER),
     appliedCommandId: typeof data.appliedCommandId === 'string' ? data.appliedCommandId : null,
     gasRaw: measured(data.gasRaw, 0, 4095), temperatureC: measured(data.temperatureC, -40, 80),
     humidityPct: measured(data.humidityPct, 0, 100), updatedAt: measured(data.updatedAt, 1, Number.MAX_SAFE_INTEGER)
@@ -29,10 +29,10 @@ export function isStale(updatedAt, now = Date.now()) {
     now - updatedAt > 15_000 || updatedAt - now > 5_000;
 }
 export const hasAlarm = telemetry => telemetry?.flameDetected === true || telemetry?.gasAlarm === true;
-export const isMuted = (telemetry, now = Date.now()) => telemetry?.alarmDisabled !== true && telemetry?.muteUntil > now;
+export const isMuted = (telemetry, now = Date.now()) => telemetry?.muteUntil > now;
 export function canSetFan(telemetry, now = Date.now()) {
   return !isStale(telemetry?.updatedAt, now) && !isMuted(telemetry, now) &&
-    (telemetry?.alarmDisabled === true || (telemetry?.flameDetected === false && telemetry?.gasAlarm === false));
+    telemetry?.gasAlarm === false && telemetry?.fanOn != null;
 }
 export function validCommand(key, value) {
   if (modeKeys.includes(key)) return modes.includes(value);
@@ -41,13 +41,17 @@ export function validCommand(key, value) {
   return false;
 }
 export function canControl(telemetry, key, now = Date.now()) {
-  if (!['fanOn', 'fanSpeedPct', ...modeKeys].includes(key) || !canSetFan(telemetry, now)) return false;
-  if (key === 'fanOn') return telemetry.fanOn != null;
-  return telemetry.controlsVersion === 2 && (key !== 'fanSpeedPct' || telemetry.fanSpeedSupported === true);
+  if (!['fanOn', 'fanSpeedPct', ...modeKeys].includes(key) || isStale(telemetry?.updatedAt, now) || isMuted(telemetry, now)) return false;
+  if (key === 'fanOn') return canSetFan(telemetry, now);
+  if (telemetry.controlsVersion !== 2) return false;
+  if (key === 'fanSpeedPct') return canSetFan(telemetry, now) && telemetry.fanSpeedSupported === true;
+  if (key === 'alarmLedMode') return telemetry.flameDetected === false;
+  if (key === 'statusLedMode') return telemetry.gasAlarm === false;
+  return telemetry.flameDetected === false && telemetry.gasAlarm === false;
 }
 export function canMute(telemetry, now = Date.now()) {
   return telemetry?.controlsVersion === 2 && !isStale(telemetry.updatedAt, now) &&
-    hasAlarm(telemetry) && telemetry.alarmDisabled !== true && !isMuted(telemetry, now);
+    hasAlarm(telemetry) && !isMuted(telemetry, now);
 }
 export function commandProgress(pending, telemetry, now = Date.now()) {
   if (!pending) return 'idle';
@@ -59,18 +63,17 @@ export function isLocalDemo(url) {
 }
 export function createDemoTelemetry(state = {}, now = Date.now()) {
   const { manualFan = false, gasAlarm = false, flameDetected = false, fanSpeedPct = 100,
-    alarmLedMode = 'auto', statusLedMode = 'auto', buzzerMode = 'auto', alarmDisabled = false, muteUntil = 0 } = state;
-  const muted = !alarmDisabled && muteUntil > now;
-  const alarm = (gasAlarm || flameDetected) && !alarmDisabled;
-  const output = (setting, automatic) => !muted && (alarm ? automatic : setting === 'on' ||
-    (setting === 'auto' && !alarmDisabled && automatic));
-  const fanOn = !muted && (manualFan || (gasAlarm && !alarmDisabled));
+    alarmLedMode = 'auto', statusLedMode = 'auto', buzzerMode = 'auto', muteUntil = 0 } = state;
+  const muted = muteUntil > now;
+  const alarm = gasAlarm || flameDetected;
+  const output = (setting, automatic) => !muted && (automatic || setting === 'on');
+  const fanOn = !muted && (gasAlarm || (manualFan && fanSpeedPct > 0));
   return normalizeTelemetry({
-    flameDetected, gasAlarm, fanOn, alarmLedMode, statusLedMode, buzzerMode, alarmDisabled, muteUntil,
-    alarmLedOn: output(alarmLedMode, alarm), statusLedOn: output(statusLedMode, !alarm),
+    flameDetected, gasAlarm, fanOn, alarmLedMode, statusLedMode, buzzerMode, muteUntil,
+    alarmLedOn: output(alarmLedMode, flameDetected), statusLedOn: output(statusLedMode, gasAlarm),
     buzzerOn: output(buzzerMode, alarm),
-    fanSpeedPct: fanOn ? gasAlarm && !alarmDisabled ? 100 : fanSpeedPct : 0,
-    controlsVersion: 2, fanSpeedSupported: true, appliedCommandId: state.appliedCommandId ?? '',
+    controlsVersion: 2, fanSpeedSupported: true, fanSpeedPct: gasAlarm ? 100 : fanSpeedPct,
+    appliedCommandId: state.appliedCommandId ?? '',
     gasRaw: gasAlarm ? 3072 : 1430, temperatureC: 28.3, humidityPct: 64.2, updatedAt: now
   });
 }

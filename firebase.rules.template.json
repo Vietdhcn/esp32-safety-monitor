@@ -17,9 +17,6 @@
           "buzzerOn": {
             ".validate": "newData.isBoolean()"
           },
-          "alarmDisabled": {
-            ".validate": "newData.isBoolean()"
-          },
           "fanSpeedSupported": {
             ".validate": "newData.isBoolean()"
           },
@@ -62,10 +59,6 @@
           "commandId": {
             ".write": "(auth != null && (auth.uid === 'OWNER_UID_HERE' || root.child('operators').child(auth.uid).val() === true)) && newData.exists()",
             ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64 && newData.val().matches(/^[A-Za-z0-9_-]+$/)"
-          },
-          "alarmDisabled": {
-            ".write": "(auth != null && auth.uid === 'OWNER_UID_HERE') && newData.exists()",
-            ".validate": "newData.isBoolean()"
           },
           "alarmLedMode": {
             ".write": "(auth != null && (auth.uid === 'OWNER_UID_HERE' || root.child('operators').child(auth.uid).val() === true)) && newData.exists()",

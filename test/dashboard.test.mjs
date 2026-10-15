@@ -37,11 +37,11 @@ test('telemetry older than 15 seconds is stale', () => {
   assert.equal(isStale(null, 16_000), true);
 });
 
-test('relay command is blocked on stale data or an active alarm', () => {
-  const safe = { flameDetected: false, gasAlarm: false, updatedAt: 10_000 };
+test('fan command is blocked on stale data or gas alarm, but not fire alone', () => {
+  const safe = { flameDetected: false, gasAlarm: false, fanOn: false, updatedAt: 10_000 };
   assert.equal(canSetFan(safe, 20_000), true);
   assert.equal(canSetFan({ ...safe, gasAlarm: true }, 20_000), false);
-  assert.equal(canSetFan({ ...safe, flameDetected: true }, 20_000), false);
+  assert.equal(canSetFan({ ...safe, flameDetected: true }, 20_000), true);
   assert.equal(canSetFan(safe, 30_000), false);
 });
 

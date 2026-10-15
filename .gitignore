@@ -1,4 +1,4 @@
-firmware/ESP32Safety/secrets.h
+firmware/AnToanESP32/secrets.h
 CodeESP32/
 .deps/
 node_modules/

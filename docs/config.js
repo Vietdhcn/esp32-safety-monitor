@@ -9,6 +9,3 @@ export const firebaseConfig = {
 };
 
 export const deviceId = 'esp32s-30p-01';
-
-// UI visibility only; Firebase Rules enforce the Admin identity.
-export const adminUid = "NK23PFt0RAe14EKVUiFFNjDXMsv2";

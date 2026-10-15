@@ -48,8 +48,9 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(state.path, 'devices/esp32s-30p-01/telemetry');
   assert.equal(nodes.get('dashboard').hidden, false);
   const safe = { flameDetected: false, gasAlarm: false, fanOn: false, controlsVersion: 2,
+    fanSpeedSupported: true, fanSpeedPct: 0,
     alarmLedOn: false, statusLedOn: true, buzzerOn: true, alarmLedMode: 'auto',
-    statusLedMode: 'auto', buzzerMode: 'auto', alarmDisabled: false, muteUntil: 0, updatedAt: Date.now() };
+    statusLedMode: 'auto', buzzerMode: 'auto', muteUntil: 0, updatedAt: Date.now() };
   state.reading({ val: () => safe });
   const button = nodes.get('buzzerMode-off');
   assert.equal(button?.disabled, false);
@@ -61,8 +62,25 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   state.reading({ val: () => ({ ...safe, buzzerMode: 'off', buzzerOn: false,
     appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
   assert.match(nodes.get('command-status').textContent, /ESP32 đã áp dụng/);
-  assert.equal(nodes.get('admin-controls').hidden, true);
+  await nodes.get('fan-button').listeners.click();
+  assert.equal(state.write.values.fanOn, true);
+  assert.equal(state.write.values.fanSpeedPct, 100);
+  state.reading({ val: () => ({ ...safe, fanOn: true, fanSpeedPct: 100,
+    appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
+  assert.equal(nodes.get('fan-button').textContent, 'Tắt quạt');
+  await nodes.get('fan-button').listeners.click();
+  assert.equal(state.write.values.fanOn, false);
+  state.reading({ val: () => ({ ...safe, fanOn: false,
+    appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
+  nodes.get('fan-speed').value = '40';
+  nodes.get('fan-speed').listeners.input();
+  await nodes.get('speed-button').listeners.click();
+  assert.equal(state.write.values.fanSpeedPct, 40);
+  assert.equal(state.write.values.fanOn, true);
+  state.reading({ val: () => ({ ...safe, fanOn: true, fanSpeedPct: 40,
+    appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
   state.reading({ val: () => ({ ...safe, gasAlarm: true }) });
+  assert.equal(nodes.get('speed-button').disabled, true);
   await nodes.get('mute-button').listeners.click();
   assert.deepEqual(state.write.values.muteRequestedAt, { '.sv': 'timestamp' });
 });
