@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeTelemetry, gasPercent, isStale, canSetFan } from '../docs/dashboard-model.js';
+import * as model from '../docs/dashboard-model.js';
 
 test('normalizes a complete sensor reading for display', () => {
   assert.deepEqual(normalizeTelemetry({
@@ -41,4 +42,24 @@ test('relay command is blocked on stale data or an active alarm', () => {
   assert.equal(canSetFan({ ...safe, gasAlarm: true }, 20_000), false);
   assert.equal(canSetFan({ ...safe, flameDetected: true }, 20_000), false);
   assert.equal(canSetFan(safe, 30_000), false);
+});
+
+test('demo mode is available only on local preview URLs', () => {
+  assert.equal(model.isLocalDemo?.(new URL('http://localhost:8000/?demo=1')), true);
+  assert.equal(model.isLocalDemo?.(new URL('http://127.0.0.1:8000/?demo=1')), true);
+  assert.equal(model.isLocalDemo?.(new URL('https://vietdhcn.github.io/esp32-safety-monitor/?demo=1')), false);
+  assert.equal(model.isLocalDemo?.(new URL('http://localhost:8000/')), false);
+});
+
+test('demo gas alarm forces fan while normal preview permits manual control', () => {
+  const normal = model.createDemoTelemetry?.({ manualFan: false, gasAlarm: false, flameDetected: false }, 100_000);
+  assert.equal(normal?.fanOn, false);
+  assert.equal(normal?.gasAlarm, false);
+  assert.equal(normal?.updatedAt, 100_000);
+  assert.equal(canSetFan(normal, 100_000), true);
+
+  const alarm = model.createDemoTelemetry?.({ manualFan: false, gasAlarm: true, flameDetected: false }, 101_000);
+  assert.equal(alarm?.fanOn, true);
+  assert.equal(alarm?.gasAlarm, true);
+  assert.equal(canSetFan(alarm, 101_000), false);
 });

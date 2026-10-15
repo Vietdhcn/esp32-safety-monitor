@@ -41,8 +41,6 @@ volatile float humidityPct = NAN;
 
 String firebaseIdToken;
 unsigned long authenticatedAt = 0;
-unsigned long lastSensorSample = 0;
-unsigned long lastDhtSample = 0;
 
 ERA_WRITE_SMS() {
   ERA_LOG("ERa", "SMS to %s: %s", to, message);
@@ -87,7 +85,7 @@ void sendEraTelemetry() {
 
 ERA_WRITE(V2) {
   manualFan = param.getInt() != 0;
-  updateFan(); // A gas alarm still forces the fan on.
+  // The local sensor task applies the new command within 100 ms.
 }
 
 // Every Firebase request uses HTTPS with certificate validation.
@@ -140,7 +138,6 @@ void pollFanCommand() {
   JsonDocument value;
   if (deserializeJson(value, response) == DeserializationError::Ok && value.is<bool>()) {
     manualFan = value.as<bool>();
-    updateFan();
   }
 }
 
@@ -170,6 +167,20 @@ void cloudTask(void*) {
   }
 }
 
+// Keep the local alarm responsive even while ERa.begin waits for Wi-Fi.
+void sensorTask(void*) {
+  unsigned long lastDhtSample = 0;
+  for (;;) {
+    readSensors();
+    const unsigned long now = millis();
+    if (DHT11_CONNECTED && now - lastDhtSample >= 2500) {
+      lastDhtSample = now;
+      readDht();
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   pinMode(BUZZER_PIN, OUTPUT);
@@ -191,6 +202,8 @@ void setup() {
   digitalWrite(FAN_OFF_PIN, LOW);
   if (DHT11_CONNECTED) dht.begin();
 
+  xTaskCreatePinnedToCore(sensorTask, "sensors", 6144, nullptr, 2, nullptr, 0);
+
   ERa.setScanWiFi(true);
   ERa.begin(WIFI_SSID, WIFI_PASSWORD);
   configTime(0, 0, "pool.ntp.org", "time.google.com");
@@ -200,14 +213,5 @@ void setup() {
 
 void loop() {
   ERa.run();
-  const unsigned long now = millis();
-  if (now - lastSensorSample >= 100) {
-    lastSensorSample = now;
-    readSensors();
-  }
-  if (DHT11_CONNECTED && now - lastDhtSample >= 2500) {
-    lastDhtSample = now;
-    readDht();
-  }
   delay(1);
 }

@@ -39,7 +39,8 @@ Sketch đọc DO mỗi 100 ms để tự bật quạt khi có cảnh báo gas, k
 ## Chạy web và đưa lên GitHub Pages
 
 - Kiểm thử logic giao diện: `npm test`.
-- Xem tại máy: `python -m http.server 8000 --directory docs`, sau đó mở `http://localhost:8000`.
+- Xem tại máy: chạy `python -m http.server 8000 --directory docs` trong thư mục dự án, sau đó mở `http://localhost:8000`.
+- Xem trước dashboard khi chưa có tài khoản Firebase/ESP32: mở `http://localhost:8000/?demo=1`. Chế độ này chỉ chạy trên localhost và dùng số liệu mẫu; nút quạt không gửi lệnh đến thiết bị.
 - Repository đã được đưa lên GitHub và GitHub Pages đã chọn nhánh `main`, thư mục `/docs`: `https://vietdhcn.github.io/esp32-safety-monitor/`.
 
 Tài khoản GitHub không thay thế Firebase: GitHub chứa mã web, Firebase cung cấp dữ liệu thời gian thực. `CodeESP32/` được Git bỏ qua vì `Viet.ino` chứa token ERa và mật khẩu Wi-Fi cũ. Hãy đổi các giá trị đó trước khi công khai code gốc; repository này không chứa chúng.

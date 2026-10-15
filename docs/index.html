@@ -35,7 +35,7 @@
       </section>
 
       <section id="login-panel" class="login-panel" aria-labelledby="login-title" hidden>
-        <div><p class="eyebrow">TRUY CẬP BẢO VỆ</p><h2 id="login-title">Đăng nhập để xem thiết bị</h2><p>Dùng tài khoản chủ sở hữu đã tạo trong Firebase Authentication.</p></div>
+        <div><p class="eyebrow">TRUY CẬP BẢO VỆ</p><h2 id="login-title">Đăng nhập để xem thiết bị</h2><p>Dùng tài khoản chủ sở hữu đã tạo trong Firebase Authentication.</p><a id="demo-link" class="demo-link" href="?demo=1" hidden>Xem bản mô phỏng trên PC →</a></div>
         <form id="login-form">
           <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required>
           <label for="password">Mật khẩu</label><input id="password" name="password" type="password" autocomplete="current-password" required>
@@ -45,6 +45,15 @@
       </section>
 
       <div id="dashboard" hidden>
+        <section id="demo-notice" class="notice demo-notice" aria-label="Chế độ mô phỏng" hidden>
+          <strong>CHẾ ĐỘ MÔ PHỎNG TRÊN PC</strong>
+          <p>Nhiệt độ, độ ẩm và mức gas bên dưới là dữ liệu mẫu. Các nút chỉ đổi trạng thái trên trang này, không gửi lệnh đến ESP32.</p>
+          <div class="demo-actions">
+            <button id="demo-flame" class="demo-button" type="button" aria-pressed="false">Bật báo lửa</button>
+            <button id="demo-gas" class="demo-button" type="button" aria-pressed="false">Bật báo gas</button>
+            <a class="demo-link" href="./">Thoát mô phỏng</a>
+          </div>
+        </section>
         <section class="section-heading"><div><p class="eyebrow">TỔNG QUAN</p><h2>Trạng thái hiện tại</h2></div><span id="safe-badge" class="badge badge-muted">Chờ dữ liệu</span></section>
         <section class="metric-grid" aria-label="Trạng thái cảm biến và thiết bị">
           <article class="metric-card"><div class="card-top"><span class="icon" aria-hidden="true">♨</span><span class="card-index">01 / CẢM BIẾN</span></div><h3>Ngọn lửa</h3><strong id="flame-value">—</strong><p id="flame-detail">Chưa có dữ liệu</p></article>

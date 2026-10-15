@@ -29,3 +29,20 @@ export function canSetFan(telemetry, now = Date.now()) {
   return telemetry?.flameDetected === false && telemetry?.gasAlarm === false &&
     !isStale(telemetry.updatedAt, now);
 }
+
+export function isLocalDemo(url) {
+  return ['localhost', '127.0.0.1'].includes(url.hostname) &&
+    url.searchParams.get('demo') === '1';
+}
+
+export function createDemoTelemetry({ manualFan = false, gasAlarm = false, flameDetected = false } = {}, now = Date.now()) {
+  return normalizeTelemetry({
+    flameDetected,
+    gasAlarm,
+    fanOn: manualFan || gasAlarm,
+    gasRaw: gasAlarm ? 3072 : 1430,
+    temperatureC: 28.3,
+    humidityPct: 64.2,
+    updatedAt: now
+  });
+}

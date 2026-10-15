@@ -1,10 +1,13 @@
 import { firebaseConfig, deviceId } from './config.js';
-import { normalizeTelemetry, gasPercent, isStale, canSetFan } from './dashboard-model.js';
+import { normalizeTelemetry, gasPercent, isStale, canSetFan, isLocalDemo, createDemoTelemetry } from './dashboard-model.js';
 
 const $ = id => document.getElementById(id);
 const setupMessage = $('setup-message');
 const loginPanel = $('login-panel');
 const dashboard = $('dashboard');
+const pageUrl = new URL(window.location.href);
+const localPreview = ['localhost', '127.0.0.1'].includes(pageUrl.hostname);
+const demoMode = isLocalDemo(pageUrl);
 let telemetry = normalizeTelemetry();
 let unsubscribeTelemetry = null;
 let database = null;
@@ -17,13 +20,13 @@ function render() {
   const stale = isStale(telemetry.updatedAt);
   const alarm = telemetry.flameDetected === true || telemetry.gasAlarm === true;
   $('connection-dot').className = `connection-dot ${stale ? 'alert' : 'online'}`;
-  $('connection-label').textContent = stale ? 'Thiết bị ngoại tuyến' : alarm ? 'Có cảnh báo' : 'Đang kết nối';
-  $('last-updated').textContent = telemetry.updatedAt == null ? 'Chưa có dữ liệu từ thiết bị' :
+  $('connection-label').textContent = demoMode ? 'Mô phỏng trên PC' : stale ? 'Thiết bị ngoại tuyến' : alarm ? 'Có cảnh báo' : 'Đang kết nối';
+  $('last-updated').textContent = demoMode ? 'Dữ liệu mẫu, không kết nối ESP32' : telemetry.updatedAt == null ? 'Chưa có dữ liệu từ thiết bị' :
     `Cập nhật lúc ${new Date(telemetry.updatedAt).toLocaleString('vi-VN')}`;
 
   const badge = $('safe-badge');
   badge.className = `badge ${stale ? 'badge-muted' : alarm ? 'badge-danger' : 'badge-safe'}`;
-  badge.textContent = stale ? 'Dữ liệu cũ' : alarm ? 'Cảnh báo' : 'Bình thường';
+  badge.textContent = demoMode ? alarm ? 'Mô phỏng: cảnh báo' : 'Mô phỏng: an toàn' : stale ? 'Dữ liệu cũ' : alarm ? 'Cảnh báo' : 'Bình thường';
 
   showReading('flame-value', stale || telemetry.flameDetected == null ? null : telemetry.flameDetected ? 'Phát hiện' : 'An toàn');
   showReading('gas-alarm-value', stale || telemetry.gasAlarm == null ? null : telemetry.gasAlarm ? 'Phát hiện' : 'An toàn');
@@ -34,7 +37,7 @@ function render() {
   $('humidity-detail').textContent = telemetry.humidityPct == null ? 'Chưa có dữ liệu DHT11' : 'Độ ẩm tương đối';
   $('flame-detail').textContent = stale ? 'Không có dữ liệu mới' : 'Tín hiệu cảm biến lửa';
   $('gas-alarm-detail').textContent = stale ? 'Không có dữ liệu mới' : 'Ngưỡng DO trên MQ-2';
-  $('fan-detail').textContent = stale ? 'Không có dữ liệu mới' : 'Trạng thái relay thực tế';
+  $('fan-detail').textContent = demoMode ? 'Trạng thái mô phỏng' : stale ? 'Không có dữ liệu mới' : 'Trạng thái relay thực tế';
   $('flame-value').closest('.metric-card').classList.toggle('alert', !stale && telemetry.flameDetected === true);
   $('gas-alarm-value').closest('.metric-card').classList.toggle('alert', !stale && telemetry.gasAlarm === true);
 
@@ -52,6 +55,7 @@ function render() {
   $('fan-mode').textContent = stale ? 'Thiết bị ngoại tuyến' : alarm ? 'Đang có cảnh báo' :
     telemetry.fanOn == null ? 'Chưa có trạng thái' : telemetry.fanOn ? 'Relay đang bật' : 'Relay đang tắt';
   if (!allowed) $('command-status').textContent = stale ? 'Cần dữ liệu mới từ thiết bị để điều khiển.' : 'Điều khiển thủ công bị khóa khi có cảnh báo.';
+  else if (demoMode) $('command-status').textContent = 'Nút quạt chỉ thay đổi trạng thái mẫu trên PC.';
 }
 
 function watchDevice() {
@@ -67,9 +71,34 @@ function watchDevice() {
 }
 
 const required = ['apiKey', 'authDomain', 'databaseURL', 'projectId', 'appId'];
-if (required.some(key => !firebaseConfig[key])) {
+if (demoMode) {
+  const demoState = { manualFan: false, gasAlarm: false, flameDetected: false };
+  dashboard.hidden = false;
+  $('demo-notice').hidden = false;
+  const updateDemo = () => {
+    telemetry = createDemoTelemetry(demoState);
+    for (const [id, active, label] of [
+      ['demo-flame', demoState.flameDetected, 'báo lửa'],
+      ['demo-gas', demoState.gasAlarm, 'báo gas']
+    ]) {
+      $(id).setAttribute('aria-pressed', String(active));
+      $(id).textContent = `${active ? 'Tắt' : 'Bật'} ${label}`;
+    }
+    render();
+  };
+  $('demo-flame').addEventListener('click', () => { demoState.flameDetected = !demoState.flameDetected; updateDemo(); });
+  $('demo-gas').addEventListener('click', () => { demoState.gasAlarm = !demoState.gasAlarm; updateDemo(); });
+  $('fan-button').addEventListener('click', () => {
+    if (!canSetFan(telemetry)) return;
+    demoState.manualFan = !demoState.manualFan;
+    updateDemo();
+  });
+  updateDemo();
+  setInterval(updateDemo, 1000);
+} else if (required.some(key => !firebaseConfig[key])) {
   setupMessage.hidden = false;
 } else {
+  $('demo-link').hidden = !localPreview;
   const [{ initializeApp }, { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut },
     { getDatabase, ref, onValue, set }] = await Promise.all([
     import('https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js'),
