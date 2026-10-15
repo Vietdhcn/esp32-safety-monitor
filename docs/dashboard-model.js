@@ -45,7 +45,7 @@ export function canControl(telemetry, key, now = Date.now()) {
   if (key === 'fanOn') return canSetFan(telemetry, now);
   if (telemetry.controlsVersion !== 2) return false;
   if (key === 'fanSpeedPct') return canSetFan(telemetry, now) && telemetry.fanSpeedSupported === true;
-  if (key === 'alarmLedMode') return telemetry.flameDetected === false;
+  if (key === 'alarmLedMode') return !hasAlarm(telemetry);
   if (key === 'statusLedMode') return telemetry.gasAlarm === false;
   return telemetry.flameDetected === false && telemetry.gasAlarm === false;
 }
@@ -70,7 +70,7 @@ export function createDemoTelemetry(state = {}, now = Date.now()) {
   const fanOn = !muted && (gasAlarm || (manualFan && fanSpeedPct > 0));
   return normalizeTelemetry({
     flameDetected, gasAlarm, fanOn, alarmLedMode, statusLedMode, buzzerMode, muteUntil,
-    alarmLedOn: output(alarmLedMode, flameDetected), statusLedOn: output(statusLedMode, gasAlarm),
+    alarmLedOn: output(alarmLedMode, alarm), statusLedOn: output(statusLedMode, gasAlarm),
     buzzerOn: output(buzzerMode, alarm),
     controlsVersion: 2, fanSpeedSupported: true, fanSpeedPct: gasAlarm ? 100 : fanSpeedPct,
     appliedCommandId: state.appliedCommandId ?? '',

@@ -28,7 +28,7 @@ test('stale telemetry locks commands, but an alarm only locks its automatic outp
   }
   const gas = { ...safe(now), gasAlarm: true, fanOn: true };
   assert.equal(model.canControl(gas, 'fanOn', now), false);
-  assert.equal(model.canControl(gas, 'alarmLedMode', now), true);
+  assert.equal(model.canControl(gas, 'alarmLedMode', now), false);
   assert.equal(model.canControl(gas, 'statusLedMode', now), false);
   assert.equal(model.canControl(gas, 'buzzerMode', now), false);
   const flame = { ...safe(now), flameDetected: true };
@@ -68,19 +68,19 @@ test('demo actuators honor PWM setting and gas forces full ventilation', () => {
     alarmLedMode: 'off', buzzerMode: 'off' }, 100_000);
   assert.equal(alarm.fanOn, true);
   assert.equal(alarm.fanSpeedPct, 100);
-  assert.equal(alarm.alarmLedOn, false);
+  assert.equal(alarm.alarmLedOn, true);
   assert.equal(alarm.statusLedOn, true);
   assert.equal(alarm.buzzerOn, true);
 });
 
-test('flame and gas indicators follow only their own sensor', () => {
+test('red D22 alarm follows either hazard while D23 follows gas', () => {
   const now = 100_000;
   const flame = model.createDemoTelemetry({ flameDetected: true }, now);
   assert.equal(flame.alarmLedOn, true);
   assert.equal(flame.statusLedOn, false);
   assert.equal(flame.fanOn, false);
   const gas = model.createDemoTelemetry({ gasAlarm: true }, now);
-  assert.equal(gas.alarmLedOn, false);
+  assert.equal(gas.alarmLedOn, true);
   assert.equal(gas.statusLedOn, true);
   assert.equal(gas.fanOn, true);
   const both = model.createDemoTelemetry({ gasAlarm: true, flameDetected: true }, now);

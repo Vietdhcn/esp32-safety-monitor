@@ -38,7 +38,8 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   };
   let source = await readFile(new URL('../docs/app.js', import.meta.url), 'utf8');
   for (const name of ['config', 'dashboard-model']) {
-    source = source.replace(`'./${name}.js'`, JSON.stringify(new URL(`../docs/${name}.js`, import.meta.url).href));
+    source = source.replace(new RegExp(`'\\./${name}\\.js(?:\\?[^']*)?'`),
+      JSON.stringify(new URL(`../docs/${name}.js`, import.meta.url).href));
   }
   for (const [name, code] of Object.entries(sdk)) {
     source = source.replace(`'https://www.gstatic.com/firebasejs/13.0.0/${name}.js'`, JSON.stringify(moduleUrl(code)));
@@ -116,6 +117,9 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   state.reading({ val: () => ({ ...safe, fanOn: true, fanSpeedPct: 65,
     appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
   state.reading({ val: () => ({ ...safe, gasAlarm: true }) });
+  assert.match(nodes.get('connection-dot').className, /\balert\b/, 'gas warning turns the connection indicator red');
+  assert.equal(nodes.get('safe-badge').textContent, 'Cảnh báo gas');
+  assert.equal(nodes.get('flame-value').textContent, 'An toàn', 'gas alone must not appear as flame');
   assert.equal(nodes.get('speed-button').disabled, true);
   await nodes.get('mute-button').listeners.click();
   assert.deepEqual(state.write.values.muteRequestedAt, { '.sv': 'timestamp' });

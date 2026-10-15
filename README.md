@@ -8,7 +8,7 @@ ESP32 đọc cảm biến và điều khiển đầu ra tại chỗ; Firebase Re
 |---|---:|---|
 | Cảm biến lửa DO | 16 | LOW là phát hiện lửa |
 | MQ-2 DO | 17 | LOW là vượt ngưỡng gas trên module |
-| LED lửa | 22 | Sáng khi có lửa |
+| LED cảnh báo đỏ | 22 | Sáng khi có gas hoặc lửa |
 | LED gas | 23 | Sáng khi có gas |
 | Còi | 13 | LOW là kêu; nháy khi có lửa hoặc gas |
 | Driver quạt L9110S kênh A | 32 (A-IA), 33 (A-IB) | D32 PWM 1 kHz, D33 LOW; quạt ở MOTOR A |
@@ -23,7 +23,7 @@ Nếu thử gas mà **đèn báo DO trên chính module lửa** cũng sáng, ESP
 
 ## Logic cảnh báo
 
-- Lửa bật LED D22; gas bật LED D23 và quạt; cả hai nguồn cùng bật cả hai LED. Còi nháy khi có một trong hai cảnh báo. Lệnh quạt, hai LED và còi được tính riêng trong vòng điều khiển 100 ms.
+- Gas hoặc lửa bật LED đỏ D22; riêng gas bật thêm LED D23 và quạt. Còi nháy khi có một trong hai cảnh báo. ESP32 đọc cảm biến khoảng mỗi 20 ms; khi tín hiệu đổi, gửi telemetry ngay sau khi hoàn tất yêu cầu HTTPS đang chạy. Web nhận thay đổi qua Firebase Realtime Database. ESP32 vẫn gửi trạng thái định kỳ mỗi 5 giây và kiểm tra lệnh mỗi 1 giây.
 - Mỗi LED và còi có chế độ **Tự động / Bật / Tắt** khi không có cảnh báo tương ứng. Trong cảnh báo, đầu ra an toàn tương ứng được ưu tiên.
 - **Tạm tắt 30 giây** tắt các đầu ra nhưng vẫn đọc và hiển thị cảm biến. Hết hạn, nguy cơ còn thì đầu ra tự bật lại. Không có chức năng tắt cảnh báo vĩnh viễn.
 - Web khóa lệnh khi telemetry cũ hơn 15 giây. Sau khi nhấn, giao diện hiển thị trạng thái yêu cầu kèm “chờ xác nhận”; trạng thái thực được xác nhận bằng `appliedCommandId` từ ESP32. Nếu chưa được xác nhận sau 20 giây, giao diện trở về dữ liệu telemetry và báo lỗi.

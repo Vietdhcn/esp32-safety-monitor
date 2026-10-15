@@ -15,7 +15,7 @@ constexpr uint8_t MQ2_DO_PIN = 17;
 constexpr uint8_t BUZZER_PIN = 13;
 // Hardware check: D13 HIGH silences this circuit; LOW sounds the buzzer.
 constexpr uint8_t BUZZER_ACTIVE_LEVEL = LOW;
-constexpr uint8_t FLAME_LED_PIN = 22;
+constexpr uint8_t ALARM_LED_PIN = 22; // Red alarm LED: gas or flame.
 constexpr uint8_t GAS_LED_PIN = 23;
 constexpr uint8_t FAN_ON_PIN = 32;
 constexpr uint8_t FAN_OFF_PIN = 33;
@@ -25,8 +25,11 @@ constexpr char DEVICE_ID[] = "esp32s-30p-01";
 
 DHT dht(DHT11_PIN, DHT11);
 
-volatile int flame_sensor = 0;
-volatile int gas_sensor = 0;
+constexpr uint8_t FLAME_FLAG = 1;
+constexpr uint8_t GAS_FLAG = 2;
+volatile uint8_t sensorFlags = 0;
+volatile uint32_t telemetryRevision = 0;
+TaskHandle_t cloudTaskHandle = nullptr;
 volatile int state_pan = 0;
 volatile int gasRaw = -1;
 volatile float temperatureC = NAN;
@@ -195,14 +198,10 @@ void pollCommands() {
   portEXIT_CRITICAL(&controlMux);
 }
 
-void publishTelemetry() {
+bool publishTelemetry(uint8_t flags, const AppliedOutputs& current) {
   JsonDocument data;
-  data["flameDetected"] = flame_sensor == LOW;
-  data["gasAlarm"] = gas_sensor == LOW;
-  AppliedOutputs current;
-  portENTER_CRITICAL(&controlMux);
-  current = outputs;
-  portEXIT_CRITICAL(&controlMux);
+  data["flameDetected"] = (flags & FLAME_FLAG) != 0;
+  data["gasAlarm"] = (flags & GAS_FLAG) != 0;
   data["fanOn"] = current.fanOn;
   data["fanSpeedSupported"] = fanPwmReady;
   data["fanSpeedPct"] = current.fanSpeedPct;
@@ -224,15 +223,51 @@ void publishTelemetry() {
   String response;
   const int status = firebaseHttp(firebasePath("telemetry"), "PUT", body, response);
   if (status != 200) Serial.printf("Firebase telemetry HTTP %d\n", status);
+  return status == 200;
 }
 
 void cloudTask(void*) {
+  uint8_t lastPublishedFlags = 0xFF;
+  uint32_t lastPublishedRevision = UINT32_MAX;
+  unsigned long lastPublishedAt = 0;
+  unsigned long lastPublishAttemptAt = 0;
+  unsigned long lastCommandPollAt = 0;
+  unsigned long lastAuthAttemptAt = 0;
   for (;;) {
-    if (WiFi.status() == WL_CONNECTED && time(nullptr) > 1700000000 && ensureFirebaseAuth()) {
-      pollCommands();
-      publishTelemetry();
+    if (WiFi.status() == WL_CONNECTED && time(nullptr) > 1700000000) {
+      const bool tokenValid = firebaseIdToken.length() && millis() - authenticatedAt < 45UL * 60UL * 1000UL;
+      bool authenticated = tokenValid;
+      if (!authenticated && (lastAuthAttemptAt == 0 || millis() - lastAuthAttemptAt >= 2000)) {
+        lastAuthAttemptAt = millis();
+        authenticated = ensureFirebaseAuth();
+      }
+      if (authenticated) {
+        const unsigned long now = millis();
+        uint8_t flags;
+        uint32_t revision;
+        AppliedOutputs current;
+        portENTER_CRITICAL(&controlMux);
+        flags = sensorFlags;
+        revision = telemetryRevision;
+        current = outputs;
+        portEXIT_CRITICAL(&controlMux);
+        const bool changed = flags != lastPublishedFlags || revision != lastPublishedRevision;
+        if ((changed || now - lastPublishedAt >= 5000) &&
+            (lastPublishAttemptAt == 0 || now - lastPublishAttemptAt >= 500)) {
+          lastPublishAttemptAt = now;
+          if (publishTelemetry(flags, current)) {
+            lastPublishedFlags = flags;
+            lastPublishedRevision = revision;
+            lastPublishedAt = millis();
+          }
+        }
+        if (millis() - lastCommandPollAt >= 1000) {
+          pollCommands();
+          lastCommandPollAt = millis();
+        }
+      }
     }
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
   }
 }
 
@@ -240,9 +275,11 @@ void cloudTask(void*) {
 void task_1(void*) {
   unsigned long lastDhtSample = 0;
   unsigned long lastStatusLog = 0;
+  unsigned long alarmStartedAt = 0;
+  bool alarmWasActive = false;
   for (;;) {
-    flame_sensor = digitalRead(FLAME_DO_PIN);
-    gas_sensor = digitalRead(MQ2_DO_PIN);
+    const uint8_t flags = (digitalRead(FLAME_DO_PIN) == LOW ? FLAME_FLAG : 0) |
+                          (digitalRead(MQ2_DO_PIN) == LOW ? GAS_FLAG : 0);
     ControlCommands command;
     portENTER_CRITICAL(&controlMux);
     command = controls;
@@ -250,19 +287,22 @@ void task_1(void*) {
     const uint64_t nowEpoch = epochMillis();
     const uint64_t muteUntil = command.muteRequestedAt > 0 ? command.muteRequestedAt + 30000ULL : 0;
     const bool muted = nowEpoch > 1700000000000ULL && command.muteRequestedAt <= nowEpoch + 5000ULL && nowEpoch < muteUntil;
-    const bool flame = flame_sensor == LOW;
-    const bool gas = gas_sensor == LOW;
+    const bool flame = (flags & FLAME_FLAG) != 0;
+    const bool gas = (flags & GAS_FLAG) != 0;
+    const bool alarmActive = flame || gas;
+    if (alarmActive && !alarmWasActive) alarmStartedAt = millis();
+    alarmWasActive = alarmActive;
     const int fanSpeed = gas ? 100 : command.fanSpeedPct;
     const bool fanOn = !muted && (gas || (command.fanOn && fanSpeed > 0));
     if (fanOn) onPan(fanSpeed); else offPan();
-    digitalWrite(FLAME_LED_PIN, !muted && (flame || command.alarmLedMode == MODE_ON) ? HIGH : LOW);
+    digitalWrite(ALARM_LED_PIN, !muted && (flame || gas || command.alarmLedMode == MODE_ON) ? HIGH : LOW);
     digitalWrite(GAS_LED_PIN, !muted && (gas || command.statusLedMode == MODE_ON) ? HIGH : LOW);
-    const bool buzzerOn = !muted && ((flame || gas) ? (millis() / 300) % 2 == 0 : command.buzzerMode == MODE_ON);
+    const bool buzzerOn = !muted && (alarmActive ? ((millis() - alarmStartedAt) / 300) % 2 == 0 : command.buzzerMode == MODE_ON);
     setBuzzer(buzzerOn);
     AppliedOutputs applied;
     applied.fanOn = state_pan != 0;
     applied.fanSpeedPct = fanPwmReady ? fanSpeed : fanOn ? 100 : 0;
-    applied.alarmLedOn = digitalRead(FLAME_LED_PIN) == HIGH;
+    applied.alarmLedOn = digitalRead(ALARM_LED_PIN) == HIGH;
     applied.statusLedOn = digitalRead(GAS_LED_PIN) == HIGH;
     applied.buzzerOn = buzzerOn;
     applied.alarmLedMode = command.alarmLedMode;
@@ -270,23 +310,31 @@ void task_1(void*) {
     applied.buzzerMode = command.buzzerMode;
     applied.muteUntil = muted ? muteUntil : 0;
     strlcpy(applied.commandId, command.commandId, sizeof(applied.commandId));
+    bool changed;
+    bool sensorsChanged;
     portENTER_CRITICAL(&controlMux);
+    sensorsChanged = flags != sensorFlags;
+    changed = sensorsChanged || strcmp(outputs.commandId, applied.commandId) != 0 ||
+              outputs.muteUntil != applied.muteUntil;
+    sensorFlags = flags;
     outputs = applied;
+    if (changed) ++telemetryRevision;
     portEXIT_CRITICAL(&controlMux);
+    if (sensorsChanged) Serial.printf("Sensor DO changed: flame=%d gas=%d\n", flame, gas);
+    if (changed && cloudTaskHandle) xTaskNotifyGive(cloudTaskHandle);
     if (MQ2_AO_CONNECTED) gasRaw = analogRead(MQ2_AO_PIN);
     const unsigned long now = millis();
     if (now - lastStatusLog >= 5000) {
       lastStatusLog = now;
       Serial.printf("Monitor WiFi=%d time=%lld flame=%d gas=%d fan=%d buzzer=%d\n",
                     static_cast<int>(WiFi.status()), static_cast<long long>(time(nullptr)),
-                    flame_sensor == LOW, gas_sensor == LOW, state_pan != 0, digitalRead(BUZZER_PIN));
+                    flame, gas, state_pan != 0, digitalRead(BUZZER_PIN));
     }
     if (DHT11_CONNECTED && now - lastDhtSample >= 2500) {
       lastDhtSample = now;
       readDht();
     }
-    delay(100);
-    vTaskDelay(1);
+    vTaskDelay(pdMS_TO_TICKS(20));
   }
 }
 
@@ -330,7 +378,7 @@ void connectConfiguredWiFi() {
 void setup() {
   Serial.begin(115200);
   pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(FLAME_LED_PIN, OUTPUT);
+  pinMode(ALARM_LED_PIN, OUTPUT);
   pinMode(GAS_LED_PIN, OUTPUT);
   pinMode(FAN_ON_PIN, OUTPUT);
   pinMode(FAN_OFF_PIN, OUTPUT);
@@ -344,7 +392,7 @@ void setup() {
     analogSetPinAttenuation(MQ2_AO_PIN, ADC_11db);
   }
   setBuzzer(false);
-  digitalWrite(FLAME_LED_PIN, LOW);
+  digitalWrite(ALARM_LED_PIN, LOW);
   digitalWrite(GAS_LED_PIN, LOW);
   offPan();
   if (DHT11_CONNECTED) dht.begin();
@@ -353,7 +401,7 @@ void setup() {
 
   connectConfiguredWiFi();
   configTime(0, 0, "pool.ntp.org", "time.google.com");
-  xTaskCreatePinnedToCore(cloudTask, "firebase", 10240, nullptr, 1, nullptr, 0);
+  xTaskCreatePinnedToCore(cloudTask, "firebase", 10240, nullptr, 1, &cloudTaskHandle, 0);
 }
 
 void loop() {

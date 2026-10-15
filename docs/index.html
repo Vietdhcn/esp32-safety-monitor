@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#101b2b">
   <meta name="description" content="Theo dõi cảm biến lửa, khí gas, nhiệt độ, độ ẩm và điều khiển quạt ESP32S 30P.">
   <title>Trạm giám sát an toàn</title>
-  <link rel="stylesheet" href="./styles.css?v=20261015-3">
-  <script type="module" src="./app.js?v=20261015-3"></script>
+  <link rel="stylesheet" href="./styles.css?v=20261016-1">
+  <script type="module" src="./app.js?v=20261016-1"></script>
 </head>
 <body>
   <div class="shell">
@@ -81,7 +81,7 @@
             <p class="eyebrow">CẢNH BÁO / ĐẦU RA</p><h2 id="control-title">Đèn · Còi</h2>
             <p id="automation-status">Đang chờ trạng thái cảnh báo.</p>
             <div id="suppression-banner" class="suppression-banner" role="status" hidden></div>
-            <div class="actuator-control"><div class="actuator-title"><strong>LED lửa <small>D22</small></strong><span id="alarmLedMode-state">—</span></div><div class="mode-buttons" role="group" aria-label="Chế độ LED lửa"><button id="alarmLedMode-auto" class="mode-button" type="button" aria-pressed="false" disabled>Tự động</button><button id="alarmLedMode-on" class="mode-button" type="button" aria-pressed="false" disabled>Bật</button><button id="alarmLedMode-off" class="mode-button" type="button" aria-pressed="false" disabled>Tắt</button></div></div>
+            <div class="actuator-control"><div class="actuator-title"><strong>LED cảnh báo đỏ <small>D22</small></strong><span id="alarmLedMode-state">—</span></div><div class="mode-buttons" role="group" aria-label="Chế độ LED cảnh báo đỏ"><button id="alarmLedMode-auto" class="mode-button" type="button" aria-pressed="false" disabled>Tự động</button><button id="alarmLedMode-on" class="mode-button" type="button" aria-pressed="false" disabled>Bật</button><button id="alarmLedMode-off" class="mode-button" type="button" aria-pressed="false" disabled>Tắt</button></div></div>
             <div class="actuator-control"><div class="actuator-title"><strong>LED khí gas <small>D23</small></strong><span id="statusLedMode-state">—</span></div><div class="mode-buttons" role="group" aria-label="Chế độ LED khí gas"><button id="statusLedMode-auto" class="mode-button" type="button" aria-pressed="false" disabled>Tự động</button><button id="statusLedMode-on" class="mode-button" type="button" aria-pressed="false" disabled>Bật</button><button id="statusLedMode-off" class="mode-button" type="button" aria-pressed="false" disabled>Tắt</button></div></div>
             <div class="actuator-control"><div class="actuator-title"><strong>Còi <small>D13</small></strong><span id="buzzerMode-state">—</span></div><div class="mode-buttons" role="group" aria-label="Chế độ còi"><button id="buzzerMode-auto" class="mode-button" type="button" aria-pressed="false" disabled>Tự động</button><button id="buzzerMode-on" class="mode-button" type="button" aria-pressed="false" disabled>Bật</button><button id="buzzerMode-off" class="mode-button" type="button" aria-pressed="false" disabled>Tắt</button></div></div>
             <div class="alarm-actions"><button id="mute-button" class="demo-button" type="button" disabled>Tạm tắt tất cả 30 giây</button><p class="reading-note">Tạm dừng còi, hai đèn và quạt. Sau 30 giây, nếu cảm biến vẫn báo thì cảnh báo tự chạy lại.</p></div>

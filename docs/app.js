@@ -1,5 +1,5 @@
 import { firebaseConfig, deviceId } from './config.js';
-import { normalizeTelemetry, gasPercent, isStale, isLocalDemo, createDemoTelemetry, modeKeys, canControl, canMute, isMuted, validCommand, commandProgress } from './dashboard-model.js';
+import { normalizeTelemetry, gasPercent, isStale, isLocalDemo, createDemoTelemetry, modeKeys, canControl, canMute, isMuted, validCommand, commandProgress } from './dashboard-model.js?v=20261016-1';
 
 const $ = id => document.getElementById(id);
 const setupMessage = $('setup-message');
@@ -25,7 +25,7 @@ function showReading(id, value, suffix = '') {
 function render() {
   const stale = isStale(telemetry.updatedAt);
   const alarm = telemetry.flameDetected === true || telemetry.gasAlarm === true;
-  $('connection-dot').className = `connection-dot ${stale ? 'alert' : 'online'}`;
+  $('connection-dot').className = `connection-dot ${stale || alarm ? 'alert' : 'online'}`;
   $('connection-label').textContent = demoMode ? 'Mô phỏng trên PC' : stale ? 'Thiết bị ngoại tuyến' : alarm ? 'Có cảnh báo' : 'Đã kết nối';
   $('last-updated').textContent = demoMode ? 'Dữ liệu mẫu, không kết nối ESP32' : telemetry.updatedAt == null ? 'Chưa có dữ liệu từ thiết bị' :
     `Cập nhật lúc ${new Date(telemetry.updatedAt).toLocaleString('vi-VN')}`;
@@ -71,7 +71,7 @@ function renderControls(stale, alarm) {
   $('fan-mode').textContent = pending?.values?.fanOn != null ?
     `Đang ${requestedFanOn ? 'bật' : 'tắt'} (chờ xác nhận)` :
     stale || telemetry.fanOn == null ? 'Chưa có dữ liệu mới' : telemetry.gasAlarm ? 'Tự bật khi có gas' : telemetry.fanOn ? 'Ngõ ra đang bật' : 'Ngõ ra đang tắt';
-  $('automation-status').textContent = 'LED lửa và LED gas theo riêng từng cảm biến. Còi báo khi có nguy cơ; quạt tự bật khi có gas.';
+  $('automation-status').textContent = 'LED đỏ D22 báo khi có gas hoặc lửa; LED D23 theo gas. Còi báo khi có nguy cơ; quạt tự bật khi có gas.';
   $('suppression-banner').hidden = !muted;
   $('suppression-banner').textContent = `Đang tạm tắt đầu ra · còn ${Math.max(0, Math.ceil((telemetry.muteUntil - Date.now()) / 1000))} giây. Cảm biến vẫn được theo dõi.`;
   for (const key of modeKeys) {
@@ -81,7 +81,7 @@ function renderControls(stale, alarm) {
       requestedMode === 'on' ? 'Đang bật (chờ xác nhận)' :
       requestedMode === 'off' ? 'Đang tắt (chờ xác nhận)' :
       stale || actual == null ? '—' : muted ? 'Tạm tắt' :
-      ((key === 'alarmLedMode' && telemetry.flameDetected) || (key === 'statusLedMode' && telemetry.gasAlarm) || (key === 'buzzerMode' && alarm)) ? 'Đang cảnh báo' : actual ? 'Đang bật' : 'Đang tắt';
+      ((key === 'alarmLedMode' && alarm) || (key === 'statusLedMode' && telemetry.gasAlarm) || (key === 'buzzerMode' && alarm)) ? 'Đang cảnh báo' : actual ? 'Đang bật' : 'Đang tắt';
     for (const value of ['auto', 'on', 'off']) {
       const button = $(key + '-' + value);
       button.disabled = busy || !canControl(telemetry, key);
