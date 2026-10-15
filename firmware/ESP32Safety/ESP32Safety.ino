@@ -19,6 +19,8 @@
 constexpr uint8_t FLAME_DO_PIN = 16;
 constexpr uint8_t MQ2_DO_PIN = 17;
 constexpr uint8_t BUZZER_PIN = 13;
+// Hardware check: D13 HIGH silences this circuit; LOW sounds the buzzer.
+constexpr uint8_t BUZZER_ACTIVE_LEVEL = LOW;
 constexpr uint8_t ALARM_LED_PIN = 22;
 constexpr uint8_t STATUS_LED_PIN = 23;
 constexpr uint8_t FAN_ON_PIN = 32;
@@ -90,6 +92,9 @@ const char* outputModeName(int value) {
 }
 bool manualOutput(int mode, bool automatic) {
   return mode == MODE_ON || (mode == MODE_AUTO && automatic);
+}
+void setBuzzer(bool enabled) {
+  digitalWrite(BUZZER_PIN, enabled ? BUZZER_ACTIVE_LEVEL : !BUZZER_ACTIVE_LEVEL);
 }
 
 ERA_WRITE_SMS() {
@@ -287,7 +292,7 @@ void task_1(void*) {
 
     if (muted) {
       offPan();
-      digitalWrite(BUZZER_PIN, LOW);
+      setBuzzer(false);
       digitalWrite(ALARM_LED_PIN, LOW);
       digitalWrite(STATUS_LED_PIN, LOW);
     } else {
@@ -299,8 +304,7 @@ void task_1(void*) {
         digitalWrite(ALARM_LED_PIN, !digitalRead(ALARM_LED_PIN));
         digitalWrite(STATUS_LED_PIN, LOW);
       } else {
-        // The two-pin buzzer (+ D13, - GND) must be LOW when no alarm is active.
-        digitalWrite(BUZZER_PIN, manualOutput(command.buzzerMode, false) ? HIGH : LOW);
+        setBuzzer(manualOutput(command.buzzerMode, false));
         digitalWrite(ALARM_LED_PIN, manualOutput(command.alarmLedMode, false) ? HIGH : LOW);
         digitalWrite(STATUS_LED_PIN, manualOutput(command.statusLedMode, !command.alarmDisabled) ? HIGH : LOW);
       }
@@ -309,7 +313,7 @@ void task_1(void*) {
     applied.fanOn = state_pan != 0;
     applied.alarmLedOn = digitalRead(ALARM_LED_PIN) == HIGH;
     applied.statusLedOn = digitalRead(STATUS_LED_PIN) == HIGH;
-    applied.buzzerOn = digitalRead(BUZZER_PIN) == HIGH;
+    applied.buzzerOn = digitalRead(BUZZER_PIN) == BUZZER_ACTIVE_LEVEL;
     applied.alarmLedMode = command.alarmLedMode;
     applied.statusLedMode = command.statusLedMode;
     applied.buzzerMode = command.buzzerMode;
@@ -388,7 +392,7 @@ void setup() {
   }
   controlPreferences.begin("safety-control", false);
   controls.alarmDisabled = controlPreferences.getBool("alarmDisabled", false);
-  digitalWrite(BUZZER_PIN, LOW);
+  setBuzzer(false);
   digitalWrite(ALARM_LED_PIN, LOW);
   digitalWrite(STATUS_LED_PIN, controls.alarmDisabled ? LOW : HIGH);
   offPan();
