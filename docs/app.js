@@ -68,18 +68,24 @@ function renderControls(stale, alarm) {
   const requestedFanOn = pending?.values?.fanOn ?? telemetry.fanOn;
   $('fan-button').disabled = busy || !canControl(telemetry, 'fanOn');
   $('fan-button').textContent = requestedFanOn ? 'Tắt quạt' : 'Bật quạt';
-  $('fan-mode').textContent = stale || telemetry.fanOn == null ? 'Chưa có dữ liệu mới' : telemetry.gasAlarm ? 'Tự bật khi có gas' : telemetry.fanOn ? 'Ngõ ra đang bật' : 'Ngõ ra đang tắt';
+  $('fan-mode').textContent = pending?.values?.fanOn != null ?
+    `Đang ${requestedFanOn ? 'bật' : 'tắt'} (chờ xác nhận)` :
+    stale || telemetry.fanOn == null ? 'Chưa có dữ liệu mới' : telemetry.gasAlarm ? 'Tự bật khi có gas' : telemetry.fanOn ? 'Ngõ ra đang bật' : 'Ngõ ra đang tắt';
   $('automation-status').textContent = 'LED lửa và LED gas theo riêng từng cảm biến. Còi báo khi có nguy cơ; quạt tự bật khi có gas.';
   $('suppression-banner').hidden = !muted;
   $('suppression-banner').textContent = `Đang tạm tắt đầu ra · còn ${Math.max(0, Math.ceil((telemetry.muteUntil - Date.now()) / 1000))} giây. Cảm biến vẫn được theo dõi.`;
   for (const key of modeKeys) {
     const actual = telemetry[modeOutput[key]];
-    $(key + '-state').textContent = stale || actual == null ? '—' : muted ? 'Tạm tắt' :
+    const requestedMode = pending?.values?.[key];
+    $(key + '-state').textContent = requestedMode === 'auto' ? 'Đang chuyển tự động (chờ xác nhận)' :
+      requestedMode === 'on' ? 'Đang bật (chờ xác nhận)' :
+      requestedMode === 'off' ? 'Đang tắt (chờ xác nhận)' :
+      stale || actual == null ? '—' : muted ? 'Tạm tắt' :
       ((key === 'alarmLedMode' && telemetry.flameDetected) || (key === 'statusLedMode' && telemetry.gasAlarm) || (key === 'buzzerMode' && alarm)) ? 'Đang cảnh báo' : actual ? 'Đang bật' : 'Đang tắt';
     for (const value of ['auto', 'on', 'off']) {
       const button = $(key + '-' + value);
       button.disabled = busy || !canControl(telemetry, key);
-      button.setAttribute('aria-pressed', String(telemetry[key] === value));
+      button.setAttribute('aria-pressed', String((requestedMode ?? telemetry[key]) === value));
     }
   }
   const speedAllowed = canControl(telemetry, 'fanSpeedPct');

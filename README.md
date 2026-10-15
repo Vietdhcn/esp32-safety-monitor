@@ -26,7 +26,7 @@ Nếu thử gas mà **đèn báo DO trên chính module lửa** cũng sáng, ESP
 - Lửa bật LED D22; gas bật LED D23 và quạt; cả hai nguồn cùng bật cả hai LED. Còi nháy khi có một trong hai cảnh báo. Lệnh quạt, hai LED và còi được tính riêng trong vòng điều khiển 100 ms.
 - Mỗi LED và còi có chế độ **Tự động / Bật / Tắt** khi không có cảnh báo tương ứng. Trong cảnh báo, đầu ra an toàn tương ứng được ưu tiên.
 - **Tạm tắt 30 giây** tắt các đầu ra nhưng vẫn đọc và hiển thị cảm biến. Hết hạn, nguy cơ còn thì đầu ra tự bật lại. Không có chức năng tắt cảnh báo vĩnh viễn.
-- Web khóa lệnh khi telemetry cũ hơn 15 giây; lệnh được xác nhận bằng `appliedCommandId` từ ESP32. Web báo chưa xác nhận sau 20 giây.
+- Web khóa lệnh khi telemetry cũ hơn 15 giây. Sau khi nhấn, giao diện hiển thị trạng thái yêu cầu kèm “chờ xác nhận”; trạng thái thực được xác nhận bằng `appliedCommandId` từ ESP32. Nếu chưa được xác nhận sau 20 giây, giao diện trở về dữ liệu telemetry và báo lỗi.
 - Sau mỗi lần khởi động, ESP32 bỏ qua lệnh điều khiển cũ còn lưu trên Firebase; quạt tay mặc định tắt. Lệnh mới từ web có `commandId` mới sẽ được áp dụng.
 
 ## Cấu hình và nạp

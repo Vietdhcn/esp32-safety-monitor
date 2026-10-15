@@ -13,8 +13,8 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   });
   const nodes = new Map();
   globalThis.document = { getElementById(id) {
-    if (!nodes.has(id)) nodes.set(id, { hidden: false, style: {}, listeners: {}, value: '',
-      classList: { toggle() {} }, closest() { return this; }, setAttribute() {},
+    if (!nodes.has(id)) nodes.set(id, { hidden: false, style: {}, listeners: {}, value: '', attributes: {},
+      classList: { toggle() {} }, closest() { return this; }, setAttribute(key, value) { this.attributes[key] = value; },
       addEventListener(event, callback) { this.listeners[event] = callback; } });
     return nodes.get(id);
   } };
@@ -49,7 +49,7 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(nodes.get('dashboard').hidden, false);
   const safe = { flameDetected: false, gasAlarm: false, fanOn: false, controlsVersion: 2,
     fanSpeedSupported: true, fanSpeedPct: 0,
-    alarmLedOn: false, statusLedOn: true, buzzerOn: true, alarmLedMode: 'auto',
+    alarmLedOn: false, statusLedOn: false, buzzerOn: true, alarmLedMode: 'auto',
     statusLedMode: 'auto', buzzerMode: 'auto', muteUntil: 0, updatedAt: Date.now() };
   state.reading({ val: () => safe });
   const button = nodes.get('buzzerMode-off');
@@ -63,14 +63,29 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   state.reading({ val: () => ({ ...safe, buzzerMode: 'off', buzzerOn: false,
     appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
   assert.match(nodes.get('command-status').textContent, /ESP32 đã áp dụng/);
+  await nodes.get('statusLedMode-on').listeners.click();
+  assert.equal(nodes.get('statusLedMode-state').textContent, 'Đang bật (chờ xác nhận)',
+    'LED should show the requested state immediately while ESP32 telemetry catches up');
+  assert.equal(nodes.get('statusLedMode-on').attributes['aria-pressed'], 'true');
+  state.reading({ val: () => ({ ...safe, statusLedMode: 'on', statusLedOn: true,
+    appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
+  assert.equal(nodes.get('statusLedMode-state').textContent, 'Đang bật');
+  await nodes.get('statusLedMode-off').listeners.click();
+  assert.equal(nodes.get('statusLedMode-state').textContent, 'Đang tắt (chờ xác nhận)');
+  assert.equal(nodes.get('statusLedMode-off').attributes['aria-pressed'], 'true');
+  state.reading({ val: () => ({ ...safe, statusLedMode: 'off', statusLedOn: false,
+    appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
+  assert.equal(nodes.get('statusLedMode-state').textContent, 'Đang tắt');
   await nodes.get('fan-button').listeners.click();
   assert.equal(state.write.values.fanOn, true);
   assert.equal(state.write.values.fanSpeedPct, 100);
   const firstFanCommandId = state.write.values.commandId;
   assert.equal(nodes.get('fan-button').disabled, false, 'Firebase write must not lock controls until ESP32 acknowledgement');
   assert.equal(nodes.get('fan-button').textContent, 'Tắt quạt');
+  assert.equal(nodes.get('fan-mode').textContent, 'Đang bật (chờ xác nhận)');
   await nodes.get('fan-button').listeners.click();
   assert.equal(state.write.values.fanOn, false);
+  assert.equal(nodes.get('fan-mode').textContent, 'Đang tắt (chờ xác nhận)');
   assert.notEqual(state.write.values.commandId, firstFanCommandId);
   state.reading({ val: () => ({ ...safe, fanOn: true, fanSpeedPct: 100,
     appliedCommandId: firstFanCommandId, updatedAt: Date.now() }) });
