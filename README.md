@@ -12,7 +12,7 @@ Board **ESP32S 30P / ESP32-D0WD-V3, flash 4 MB** đã được nạp qua COM10. 
 |---|---:|---|
 | Flame DO | 16 | Mức LOW là cảnh báo, như code cũ |
 | MQ-2 DO | 17 | Mức LOW là cảnh báo, như code cũ |
-| Còi | 13 | Giữ cách bật/tắt từ code cũ |
+| Còi | 13 | Giữ logic code mẫu đã chạy: HIGH khi bình thường, đảo mức mỗi vòng khi cảnh báo |
 | LED cảnh báo | 22 | Giữ cách bật/tắt từ code cũ |
 | LED trạng thái | 23 | Giữ cách bật/tắt từ code cũ |
 | Relay/quạt | 32, 33 | Giữ hai ngõ ra từ code cũ; xác nhận lại phần mạch relay trước khi nạp |
@@ -36,7 +36,9 @@ GitHub Pages chỉ phục vụ HTML/CSS/JavaScript, nên cần Firebase làm nơ
 
 Trong Arduino IDE, chọn board **ESP32 Dev Module** cho ESP32S 30P và **Partition Scheme → Minimal SPIFFS (1.9MB APP with OTA)**. Phân vùng mặc định 1,2 MB quá nhỏ cho ERa + HTTPS. Cài các thư viện **ERa 1.6.4**, **ArduinoJson 7.4.3**, **DHT sensor library 1.4.7** và phụ thuộc **Adafruit Unified Sensor**. Mở `firmware/ESP32Safety/ESP32Safety.ino`, biên dịch và nạp. Nếu board thực tế có chân hoặc mức kích relay khác, sửa hằng số chân ở đầu sketch trước khi nạp. Bật Serial Monitor 115200 để xem lỗi HTTP Firebase.
 
-Sketch đọc DO mỗi 100 ms để tự bật quạt khi có cảnh báo gas, kể cả khi web/Firebase mất kết nối. DHT11 được đọc mỗi 2,5 giây. Firebase được cập nhật khoảng 2 giây một lần. Khi dữ liệu quá 15 giây, web báo ngoại tuyến và khóa điều khiển thủ công. Lệnh thủ công từ ERa V2 và web được áp dụng theo trạng thái nhận mới nhất; cảnh báo gas luôn buộc quạt bật.
+Sketch đọc DO khoảng mỗi 100 ms để tự bật quạt khi có cảnh báo gas, kể cả khi web/Firebase mất kết nối. DHT11 được đọc mỗi 2,5 giây. Firebase được cập nhật khoảng 2 giây một lần. Khi dữ liệu quá 15 giây, web báo ngoại tuyến và khóa điều khiển thủ công. ERa V2 giữ hành vi nhấn để đảo trạng thái từ code mẫu; lệnh web là trạng thái bật/tắt và được đọc lại mỗi lần đồng bộ Firebase. Cảnh báo gas luôn buộc quạt bật.
+
+Các hàm cảm biến được giữ theo mẫu đã hoạt động: `task_1` đọc D16/D17 và xử lý còi/LED; `onPan` và `offPan` điều khiển D32/D33; `send_data_period` gửi giá trị thô lửa/gas và trạng thái quạt lên ERa V0–V2. `connectConfiguredWiFi` xử lý Wi-Fi; `pollFanCommand` nhận lệnh web; `publishTelemetry` gửi trạng thái thật lên Firebase. GPIO16/17 ở mức LOW được hiển thị thành cảnh báo trên web. Hàm `timerEvent` gửi uptime vào V1 của mẫu không được đăng ký vì V1 đang dùng cho gas.
 
 Khi khởi động, sketch quét và thử lần lượt tối đa 8 điểm phát có cùng tên Wi-Fi đã cấu hình, mỗi điểm tối đa 12 giây. Cách này đã xử lý trường hợp thực tế hai điểm phát cùng tên: điểm mạnh nhất xác thực thất bại, điểm còn lại kết nối và gửi dữ liệu Firebase thành công. Tác vụ cảm biến vẫn chạy trong lúc kết nối. Serial Monitor 115200 hiển thị mã trạng thái Wi-Fi, lỗi ngắt kết nối và kết quả xác thực Firebase; không in mật khẩu.
 

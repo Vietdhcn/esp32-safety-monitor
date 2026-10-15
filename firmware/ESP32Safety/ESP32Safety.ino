@@ -31,10 +31,11 @@ ERaEspTime syncTime;
 ERaSmart smart(ERa, syncTime);
 DHT dht(DHT11_PIN, DHT11);
 
-volatile bool flameDetected = false;
-volatile bool gasAlarm = false;
-volatile bool fanOn = false;
-volatile bool manualFan = false;
+volatile int flame_sensor = 0;
+volatile int flame_time_detect = 0;
+volatile int gas_sensor = 0;
+volatile int state_pan = 0;
+volatile int manual_pan = 0;
 volatile int gasRaw = -1;
 volatile float temperatureC = NAN;
 volatile float humidityPct = NAN;
@@ -47,23 +48,24 @@ ERA_WRITE_SMS() {
   return true;
 }
 
-void updateFan() {
-  const bool shouldRun = gasAlarm || manualFan;
-  digitalWrite(FAN_ON_PIN, shouldRun ? HIGH : LOW);
-  digitalWrite(FAN_OFF_PIN, LOW);
-  fanOn = shouldRun;
+ERA_CONNECTED() {
+  ERA_LOG("ERa", "ERa connected!");
 }
 
-void readSensors() {
-  flameDetected = digitalRead(FLAME_DO_PIN) == LOW;
-  gasAlarm = digitalRead(MQ2_DO_PIN) == LOW;
-  if (MQ2_AO_CONNECTED) gasRaw = analogRead(MQ2_AO_PIN);
-  updateFan();
+ERA_DISCONNECTED() {
+  ERA_LOG("ERa", "ERa disconnected!");
+}
 
-  const bool alert = flameDetected || gasAlarm;
-  digitalWrite(BUZZER_PIN, alert ? !digitalRead(BUZZER_PIN) : HIGH);
-  digitalWrite(ALARM_LED_PIN, alert ? !digitalRead(ALARM_LED_PIN) : LOW);
-  digitalWrite(STATUS_LED_PIN, alert ? LOW : HIGH);
+void onPan() {
+  digitalWrite(FAN_ON_PIN, HIGH);
+  digitalWrite(FAN_OFF_PIN, LOW);
+  state_pan = 1;
+}
+
+void offPan() {
+  digitalWrite(FAN_ON_PIN, LOW);
+  digitalWrite(FAN_OFF_PIN, LOW);
+  state_pan = 0;
 }
 
 void readDht() {
@@ -74,18 +76,24 @@ void readDht() {
   if (!isnan(temperature) && temperature >= -40 && temperature <= 80) temperatureC = temperature;
 }
 
-void sendEraTelemetry() {
-  ERa.virtualWrite(V0, flameDetected ? 0 : 1); // Original active-low sensor convention.
-  ERa.virtualWrite(V1, gasAlarm ? 0 : 1);
-  ERa.virtualWrite(V2, fanOn ? 1 : 0);
+void send_data_period() {
+  ERa.virtualWrite(V0, flame_sensor);
+  ERa.virtualWrite(V1, gas_sensor);
+  ERa.virtualWrite(V2, state_pan);
   if (DHT11_CONNECTED && !isnan(temperatureC)) ERa.virtualWrite(V3, temperatureC);
   if (DHT11_CONNECTED && !isnan(humidityPct)) ERa.virtualWrite(V4, humidityPct);
   if (MQ2_AO_CONNECTED && gasRaw >= 0) ERa.virtualWrite(V5, gasRaw);
 }
 
 ERA_WRITE(V2) {
-  manualFan = param.getInt() != 0;
-  // The local sensor task applies the new command within 100 ms.
+  // Preserve the toggle action used by the working ERa sample.
+  if (state_pan == 0) {
+    manual_pan = 1;
+    onPan();
+  } else {
+    manual_pan = 0;
+    offPan();
+  }
 }
 
 // Every Firebase request uses HTTPS with certificate validation.
@@ -142,15 +150,20 @@ void pollFanCommand() {
   if (status != 200 || response == "null") return;
   JsonDocument value;
   if (deserializeJson(value, response) == DeserializationError::Ok && value.is<bool>()) {
-    manualFan = value.as<bool>();
+    manual_pan = value.as<bool>() ? 1 : 0;
+    if (manual_pan != 0) {
+      onPan();
+    } else if (gas_sensor != LOW) {
+      offPan();
+    }
   }
 }
 
 void publishTelemetry() {
   JsonDocument data;
-  data["flameDetected"] = flameDetected;
-  data["gasAlarm"] = gasAlarm;
-  data["fanOn"] = fanOn;
+  data["flameDetected"] = flame_sensor == LOW;
+  data["gasAlarm"] = gas_sensor == LOW;
+  data["fanOn"] = state_pan != 0;
   if (MQ2_AO_CONNECTED && gasRaw >= 0) data["gasRaw"] = gasRaw;
   if (DHT11_CONNECTED && !isnan(temperatureC)) data["temperatureC"] = temperatureC;
   if (DHT11_CONNECTED && !isnan(humidityPct)) data["humidityPct"] = humidityPct;
@@ -173,49 +186,53 @@ void cloudTask(void*) {
 }
 
 // Keep the local alarm responsive even while ERa.begin waits for Wi-Fi.
-void sensorTask(void*) {
+void task_1(void*) {
   unsigned long lastDhtSample = 0;
   unsigned long lastStatusLog = 0;
   for (;;) {
-    readSensors();
+    // Sensor, buzzer, LED and fan behavior retained from the working sample.
+    flame_sensor = digitalRead(FLAME_DO_PIN);
+    gas_sensor = digitalRead(MQ2_DO_PIN);
+    if (flame_sensor == 0 || gas_sensor == 0) {
+      if (flame_sensor == 0) {
+        flame_time_detect = flame_time_detect + 1;
+        if (flame_time_detect >= 10) flame_time_detect = 10;
+      } else {
+        flame_time_detect = 0;
+      }
+      if (gas_sensor == 0) {
+        onPan();
+      } else if (manual_pan == 0) {
+        offPan();
+      }
+      digitalWrite(BUZZER_PIN, !digitalRead(BUZZER_PIN));
+      digitalWrite(ALARM_LED_PIN, !digitalRead(ALARM_LED_PIN));
+      digitalWrite(STATUS_LED_PIN, LOW);
+    } else {
+      digitalWrite(BUZZER_PIN, HIGH);
+      digitalWrite(ALARM_LED_PIN, LOW);
+      digitalWrite(STATUS_LED_PIN, HIGH);
+      flame_time_detect = 0;
+      if (manual_pan == 0) offPan();
+    }
+    if (MQ2_AO_CONNECTED) gasRaw = analogRead(MQ2_AO_PIN);
     const unsigned long now = millis();
     if (now - lastStatusLog >= 5000) {
       lastStatusLog = now;
-      Serial.printf("Monitor WiFi=%d time=%lld flame=%d gas=%d fan=%d\n",
+      Serial.printf("Monitor WiFi=%d time=%lld flame=%d gas=%d fan=%d buzzer=%d\n",
                     static_cast<int>(WiFi.status()), static_cast<long long>(time(nullptr)),
-                    flameDetected, gasAlarm, fanOn);
+                    flame_sensor == LOW, gas_sensor == LOW, state_pan != 0, digitalRead(BUZZER_PIN));
     }
     if (DHT11_CONNECTED && now - lastDhtSample >= 2500) {
       lastDhtSample = now;
       readDht();
     }
-    vTaskDelay(pdMS_TO_TICKS(100));
+    delay(100);
+    vTaskDelay(1);
   }
 }
 
-void setup() {
-  Serial.begin(115200);
-  pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(ALARM_LED_PIN, OUTPUT);
-  pinMode(STATUS_LED_PIN, OUTPUT);
-  pinMode(FAN_ON_PIN, OUTPUT);
-  pinMode(FAN_OFF_PIN, OUTPUT);
-  pinMode(FLAME_DO_PIN, INPUT);
-  pinMode(MQ2_DO_PIN, INPUT);
-  if (MQ2_AO_CONNECTED) {
-    pinMode(MQ2_AO_PIN, INPUT);
-    analogReadResolution(12);
-    analogSetPinAttenuation(MQ2_AO_PIN, ADC_11db);
-  }
-  digitalWrite(BUZZER_PIN, HIGH);
-  digitalWrite(ALARM_LED_PIN, LOW);
-  digitalWrite(STATUS_LED_PIN, HIGH);
-  digitalWrite(FAN_ON_PIN, LOW);
-  digitalWrite(FAN_OFF_PIN, LOW);
-  if (DHT11_CONNECTED) dht.begin();
-
-  xTaskCreatePinnedToCore(sensorTask, "sensors", 6144, nullptr, 2, nullptr, 0);
-
+void connectConfiguredWiFi() {
   WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
     if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
       Serial.printf("WiFi disconnect reason=%u\n", info.wifi_sta_disconnected.reason);
@@ -249,9 +266,34 @@ void setup() {
   }
 
   ERa.setScanWiFi(false);
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(ALARM_LED_PIN, OUTPUT);
+  pinMode(STATUS_LED_PIN, OUTPUT);
+  pinMode(FAN_ON_PIN, OUTPUT);
+  pinMode(FAN_OFF_PIN, OUTPUT);
+  pinMode(FLAME_DO_PIN, INPUT);
+  pinMode(MQ2_DO_PIN, INPUT);
+  if (MQ2_AO_CONNECTED) {
+    pinMode(MQ2_AO_PIN, INPUT);
+    analogReadResolution(12);
+    analogSetPinAttenuation(MQ2_AO_PIN, ADC_11db);
+  }
+  digitalWrite(BUZZER_PIN, HIGH);
+  digitalWrite(ALARM_LED_PIN, LOW);
+  digitalWrite(STATUS_LED_PIN, HIGH);
+  offPan();
+  if (DHT11_CONNECTED) dht.begin();
+
+  xTaskCreatePinnedToCore(task_1, "task_1", 6144, nullptr, 2, nullptr, 0);
+
+  connectConfiguredWiFi();
   ERa.begin(WIFI_SSID, WIFI_PASSWORD);
   configTime(0, 0, "pool.ntp.org", "time.google.com");
-  ERa.addInterval(1000L, sendEraTelemetry);
+  ERa.addInterval(1000L, send_data_period);
   xTaskCreatePinnedToCore(cloudTask, "firebase", 10240, nullptr, 1, nullptr, 0);
 }
 
