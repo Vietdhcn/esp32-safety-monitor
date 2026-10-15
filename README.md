@@ -12,7 +12,7 @@ Board **ESP32S 30P / ESP32-D0WD-V3, flash 4 MB** đã được nạp qua COM10. 
 |---|---:|---|
 | Flame DO | 16 | Mức LOW là cảnh báo, như code cũ |
 | MQ-2 DO | 17 | Mức LOW là cảnh báo, như code cũ |
-| Còi | 13 | Giữ logic code mẫu đã chạy: HIGH khi bình thường, đảo mức mỗi vòng khi cảnh báo |
+| Còi hai chân | 13 | + vào D13, − vào GND: LOW khi bình thường/khởi động, đảo mức mỗi vòng khi cảnh báo |
 | LED cảnh báo | 22 | Giữ cách bật/tắt từ code cũ |
 | LED trạng thái | 23 | Giữ cách bật/tắt từ code cũ |
 | Relay/quạt | 32, 33 | Giữ hai ngõ ra từ code cũ; xác nhận lại phần mạch relay trước khi nạp |
@@ -38,7 +38,7 @@ GitHub Pages chỉ phục vụ HTML/CSS/JavaScript, nên cần Firebase làm nơ
 - Quạt D32/D33 có nút bật/tắt. Mạch thực tế là **relay 5V**, vì vậy firmware chỉ dùng GPIO HIGH/LOW và báo `fanSpeedSupported: false`. Thanh tốc độ bị khóa trên thiết bị thật; muốn chỉnh tốc độ cần thay/bổ sung mạch công suất PWM phù hợp điện áp, dòng và loại quạt. Bản mô phỏng localhost có thanh PWM để xem trước giao diện, không điều khiển relay.
 - **Tạm tắt tất cả 30 giây**: chỉ dùng khi có cảnh báo. Firebase đóng dấu thời gian máy chủ; ESP32 tắt còi, hai LED và quạt đến hạn. Nếu lửa/gas vẫn còn thì cảnh báo tự chạy lại, kể cả khi mất kết nối web. Không bỏ qua hay đổi dữ liệu cảm biến; dashboard vẫn hiển thị nguy cơ.
 - **Admin → Quản trị cảnh báo**: tài khoản chủ sở hữu có thể tắt cảnh báo tự động đến khi bật lại. Lệnh tắt cũng chuyển các ngõ ra sang Tắt. Trong trạng thái này có thể điều khiển thủ công. Cờ tắt tự động được lưu vào NVS của ESP32 để giữ sau khi khởi động lại; trạng thái này hiện rõ trên dashboard.
-- Chế độ Tự động của còi giữ đúng code mẫu: D13 HIGH khi bình thường và đảo mức mỗi 100 ms khi cảnh báo. Với còi hai chân đã xác nhận (+ D13, − GND), nút **Tắt** đặt D13 LOW, **Bật** đặt HIGH. Số đo web phản ánh mức GPIO, chưa có cảm biến phản hồi âm thanh hay vòng quay thực tế.
+- Chế độ Tự động của còi đặt D13 LOW khi bình thường và đảo mức mỗi 100 ms khi cảnh báo. Khi khởi động, D13 cũng ở LOW trong lúc chờ Wi-Fi/Firebase; cảnh báo cục bộ vẫn hoạt động khi có lửa/gas. Với còi hai chân (+ D13, − GND), nút **Tắt** đặt D13 LOW, **Bật** đặt HIGH. Số đo web phản ánh mức GPIO, chưa có cảm biến phản hồi âm thanh hay vòng quay thực tế.
 - Lệnh gồm các trường `fanOn`, `alarmLedMode`, `statusLedMode`, `buzzerMode`, `muteRequestedAt`, `alarmDisabled` và `commandId`. Web chờ ESP32 trả `appliedCommandId` sau vòng điều khiển GPIO; sau 20 giây chưa có xác nhận sẽ báo chưa xác nhận. Khi dữ liệu quá 15 giây, khóa điều khiển.
 
 ### Phân quyền

@@ -68,7 +68,7 @@ export function createDemoTelemetry(state = {}, now = Date.now()) {
   return normalizeTelemetry({
     flameDetected, gasAlarm, fanOn, alarmLedMode, statusLedMode, buzzerMode, alarmDisabled, muteUntil,
     alarmLedOn: output(alarmLedMode, alarm), statusLedOn: output(statusLedMode, !alarm),
-    buzzerOn: output(buzzerMode, alarm || !alarmDisabled),
+    buzzerOn: output(buzzerMode, alarm),
     fanSpeedPct: fanOn ? gasAlarm && !alarmDisabled ? 100 : fanSpeedPct : 0,
     controlsVersion: 2, fanSpeedSupported: true, appliedCommandId: state.appliedCommandId ?? '',
     gasRaw: gasAlarm ? 3072 : 1430, temperatureC: 28.3, humidityPct: 64.2, updatedAt: now

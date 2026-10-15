@@ -61,7 +61,7 @@ struct AppliedOutputs {
   bool fanOn = false;
   bool alarmLedOn = false;
   bool statusLedOn = true;
-  bool buzzerOn = true;
+  bool buzzerOn = false;
   bool alarmDisabled = false;
   int alarmLedMode = MODE_AUTO;
   int statusLedMode = MODE_AUTO;
@@ -299,9 +299,8 @@ void task_1(void*) {
         digitalWrite(ALARM_LED_PIN, !digitalRead(ALARM_LED_PIN));
         digitalWrite(STATUS_LED_PIN, LOW);
       } else {
-        // AUTO keeps sample idle HIGH on D13. Explicit OFF is LOW for the
-        // confirmed two-pin buzzer (+ D13, - GND). Admin-disabled AUTO is quiet.
-        digitalWrite(BUZZER_PIN, manualOutput(command.buzzerMode, !command.alarmDisabled) ? HIGH : LOW);
+        // The two-pin buzzer (+ D13, - GND) must be LOW when no alarm is active.
+        digitalWrite(BUZZER_PIN, manualOutput(command.buzzerMode, false) ? HIGH : LOW);
         digitalWrite(ALARM_LED_PIN, manualOutput(command.alarmLedMode, false) ? HIGH : LOW);
         digitalWrite(STATUS_LED_PIN, manualOutput(command.statusLedMode, !command.alarmDisabled) ? HIGH : LOW);
       }
@@ -389,7 +388,7 @@ void setup() {
   }
   controlPreferences.begin("safety-control", false);
   controls.alarmDisabled = controlPreferences.getBool("alarmDisabled", false);
-  digitalWrite(BUZZER_PIN, controls.alarmDisabled ? LOW : HIGH);
+  digitalWrite(BUZZER_PIN, LOW);
   digitalWrite(ALARM_LED_PIN, LOW);
   digitalWrite(STATUS_LED_PIN, controls.alarmDisabled ? LOW : HIGH);
   offPan();

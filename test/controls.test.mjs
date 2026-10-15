@@ -5,6 +5,13 @@ import * as model from '../docs/dashboard-model.js';
 const safe = now => model.normalizeTelemetry({ flameDetected: false, gasAlarm: false,
   fanOn: false, controlsVersion: 2, fanSpeedSupported: false, updatedAt: now });
 
+test('automatic buzzer stays quiet without an alarm and stops after an alarm clears', () => {
+  assert.equal(model.createDemoTelemetry({}, 100_000).buzzerOn, false);
+  assert.equal(model.createDemoTelemetry({ flameDetected: true }, 101_000).buzzerOn, true);
+  assert.equal(model.createDemoTelemetry({ flameDetected: false }, 102_000).buzzerOn, false);
+  assert.equal(model.createDemoTelemetry({ buzzerMode: 'on' }, 103_000).buzzerOn, true);
+});
+
 test('old firmware cannot enable new controls and unsupported speed stays locked', () => {
   const now = 100_000;
   assert.equal(model.canControl?.(safe(now), 'buzzerMode', now), true);
