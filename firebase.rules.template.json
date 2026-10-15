@@ -5,17 +5,91 @@
     "devices": {
       "esp32s-30p-01": {
         "telemetry": {
-          ".read": "auth != null && (auth.uid === 'OWNER_UID_HERE' || auth.uid === 'DEVICE_UID_HERE')",
+          ".read": "auth != null && (auth.uid === 'OWNER_UID_HERE' || auth.uid === 'DEVICE_UID_HERE' || root.child('operators').child(auth.uid).val() === true)",
           ".write": "auth != null && auth.uid === 'DEVICE_UID_HERE'",
-          ".validate": "newData.hasChildren(['flameDetected', 'gasAlarm', 'fanOn', 'updatedAt']) && newData.child('flameDetected').isBoolean() && newData.child('gasAlarm').isBoolean() && newData.child('fanOn').isBoolean() && newData.child('updatedAt').isNumber() && newData.child('updatedAt').val() <= now + 5000 && newData.child('updatedAt').val() >= now - 30000 && (!newData.child('gasRaw').exists() || (newData.child('gasRaw').isNumber() && newData.child('gasRaw').val() >= 0 && newData.child('gasRaw').val() <= 4095)) && (!newData.child('temperatureC').exists() || (newData.child('temperatureC').isNumber() && newData.child('temperatureC').val() >= -40 && newData.child('temperatureC').val() <= 80)) && (!newData.child('humidityPct').exists() || (newData.child('humidityPct').isNumber() && newData.child('humidityPct').val() >= 0 && newData.child('humidityPct').val() <= 100))"
+          ".validate": "newData.hasChildren(['flameDetected', 'gasAlarm', 'fanOn', 'updatedAt']) && newData.child('flameDetected').isBoolean() && newData.child('gasAlarm').isBoolean() && newData.child('fanOn').isBoolean() && newData.child('updatedAt').isNumber() && newData.child('updatedAt').val() <= now + 5000 && newData.child('updatedAt').val() >= now - 30000 && (!newData.child('gasRaw').exists() || (newData.child('gasRaw').isNumber() && newData.child('gasRaw').val() >= 0 && newData.child('gasRaw').val() <= 4095)) && (!newData.child('temperatureC').exists() || (newData.child('temperatureC').isNumber() && newData.child('temperatureC').val() >= -40 && newData.child('temperatureC').val() <= 80)) && (!newData.child('humidityPct').exists() || (newData.child('humidityPct').isNumber() && newData.child('humidityPct').val() >= 0 && newData.child('humidityPct').val() <= 100))",
+          "alarmLedOn": {
+            ".validate": "newData.isBoolean()"
+          },
+          "statusLedOn": {
+            ".validate": "newData.isBoolean()"
+          },
+          "buzzerOn": {
+            ".validate": "newData.isBoolean()"
+          },
+          "alarmDisabled": {
+            ".validate": "newData.isBoolean()"
+          },
+          "fanSpeedSupported": {
+            ".validate": "newData.isBoolean()"
+          },
+          "alarmLedMode": {
+            ".validate": "newData.val() === 'auto' || newData.val() === 'on' || newData.val() === 'off'"
+          },
+          "statusLedMode": {
+            ".validate": "newData.val() === 'auto' || newData.val() === 'on' || newData.val() === 'off'"
+          },
+          "buzzerMode": {
+            ".validate": "newData.val() === 'auto' || newData.val() === 'on' || newData.val() === 'off'"
+          },
+          "fanSpeedPct": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
+          },
+          "controlsVersion": {
+            ".validate": "newData.val() === 2"
+          },
+          "muteUntil": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= now + 35000"
+          },
+          "appliedCommandId": {
+            ".validate": "newData.isString() && newData.val().length <= 64"
+          }
         },
         "commands": {
+          ".read": "auth != null && (auth.uid === 'OWNER_UID_HERE' || auth.uid === 'DEVICE_UID_HERE' || root.child('operators').child(auth.uid).val() === true)",
           "fanOn": {
-            ".read": "auth != null && (auth.uid === 'OWNER_UID_HERE' || auth.uid === 'DEVICE_UID_HERE')",
-            ".write": "auth != null && auth.uid === 'OWNER_UID_HERE'",
+            ".write": "(auth != null && (auth.uid === 'OWNER_UID_HERE' || root.child('operators').child(auth.uid).val() === true)) && newData.exists()",
             ".validate": "newData.isBoolean()"
+          },
+          "fanSpeedPct": {
+            ".write": "(auth != null && (auth.uid === 'OWNER_UID_HERE' || root.child('operators').child(auth.uid).val() === true)) && newData.exists()",
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100 && newData.val() % 1 === 0"
+          },
+          "muteRequestedAt": {
+            ".write": "(auth != null && (auth.uid === 'OWNER_UID_HERE' || root.child('operators').child(auth.uid).val() === true)) && newData.exists()",
+            ".validate": "newData.isNumber() && newData.val() >= now - 5000 && newData.val() <= now"
+          },
+          "commandId": {
+            ".write": "(auth != null && (auth.uid === 'OWNER_UID_HERE' || root.child('operators').child(auth.uid).val() === true)) && newData.exists()",
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64 && newData.val().matches(/^[A-Za-z0-9_-]+$/)"
+          },
+          "alarmDisabled": {
+            ".write": "(auth != null && auth.uid === 'OWNER_UID_HERE') && newData.exists()",
+            ".validate": "newData.isBoolean()"
+          },
+          "alarmLedMode": {
+            ".write": "(auth != null && (auth.uid === 'OWNER_UID_HERE' || root.child('operators').child(auth.uid).val() === true)) && newData.exists()",
+            ".validate": "newData.val() === 'auto' || newData.val() === 'on' || newData.val() === 'off'"
+          },
+          "statusLedMode": {
+            ".write": "(auth != null && (auth.uid === 'OWNER_UID_HERE' || root.child('operators').child(auth.uid).val() === true)) && newData.exists()",
+            ".validate": "newData.val() === 'auto' || newData.val() === 'on' || newData.val() === 'off'"
+          },
+          "buzzerMode": {
+            ".write": "(auth != null && (auth.uid === 'OWNER_UID_HERE' || root.child('operators').child(auth.uid).val() === true)) && newData.exists()",
+            ".validate": "newData.val() === 'auto' || newData.val() === 'on' || newData.val() === 'off'"
+          },
+          "$other": {
+            ".validate": false
           }
         }
+      }
+    },
+    "operators": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === 'OWNER_UID_HERE' || auth.uid === $uid)",
+        ".write": "auth != null && auth.uid === 'OWNER_UID_HERE'",
+        ".validate": "newData.isBoolean()"
       }
     }
   }

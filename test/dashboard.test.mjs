@@ -4,11 +4,12 @@ import { normalizeTelemetry, gasPercent, isStale, canSetFan } from '../docs/dash
 import * as model from '../docs/dashboard-model.js';
 
 test('normalizes a complete sensor reading for display', () => {
-  assert.deepEqual(normalizeTelemetry({
+  const reading = normalizeTelemetry({
     flameDetected: false, gasAlarm: true, fanOn: true,
     gasRaw: 2048, temperatureC: 27.4, humidityPct: 65.2,
     updatedAt: 1_700_000_000_000
-  }), {
+  });
+  assert.deepEqual(Object.fromEntries(Object.entries(reading).filter(([key]) => ['flameDetected', 'gasAlarm', 'fanOn', 'gasRaw', 'temperatureC', 'humidityPct', 'updatedAt'].includes(key))), {
     flameDetected: false, gasAlarm: true, fanOn: true,
     gasRaw: 2048, temperatureC: 27.4, humidityPct: 65.2,
     updatedAt: 1_700_000_000_000

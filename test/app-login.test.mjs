@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('an authenticated session subscribes to device telemetry', async t => {
+test('authenticated controls send atomic commands and await device acknowledgement', async t => {
   const originals = new Map(['document', 'window', 'setInterval', '__firebaseLoginTest']
     .map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   t.after(() => {
@@ -13,7 +13,9 @@ test('an authenticated session subscribes to device telemetry', async t => {
   });
   const nodes = new Map();
   globalThis.document = { getElementById(id) {
-    if (!nodes.has(id)) nodes.set(id, { hidden: false, addEventListener() {} });
+    if (!nodes.has(id)) nodes.set(id, { hidden: false, style: {}, listeners: {}, value: '',
+      classList: { toggle() {} }, closest() { return this; }, setAttribute() {},
+      addEventListener(event, callback) { this.listeners[event] = callback; } });
     return nodes.get(id);
   } };
   globalThis.window = { location: { href: 'https://example.com/' } };
@@ -28,7 +30,10 @@ test('an authenticated session subscribes to device telemetry', async t => {
       export const signOut = async () => {};`,
     'firebase-database': `export const getDatabase = () => ({});
       export const ref = (_, path) => ({ path });
-      export const onValue = reference => { globalThis.__firebaseLoginTest.path = reference.path; return () => {}; };
+      export const onValue = (reference, callback) => { const s = globalThis.__firebaseLoginTest;
+        s.path = reference.path; s.reading = callback; return () => {}; };
+      export const serverTimestamp = () => ({ '.sv': 'timestamp' });
+      export const update = async (reference, values) => { globalThis.__firebaseLoginTest.write = { path: reference.path, values }; };
       export const set = async () => {};`
   };
   let source = await readFile(new URL('../docs/app.js', import.meta.url), 'utf8');
@@ -39,7 +44,25 @@ test('an authenticated session subscribes to device telemetry', async t => {
     source = source.replace(`'https://www.gstatic.com/firebasejs/13.0.0/${name}.js'`, JSON.stringify(moduleUrl(code)));
   }
   await import(moduleUrl(source));
-  assert.doesNotThrow(() => state.authChanged({ uid: 'owner' }));
+  assert.doesNotThrow(() => state.authChanged({ uid: 'operator' }));
   assert.equal(state.path, 'devices/esp32s-30p-01/telemetry');
   assert.equal(nodes.get('dashboard').hidden, false);
+  const safe = { flameDetected: false, gasAlarm: false, fanOn: false, controlsVersion: 2,
+    alarmLedOn: false, statusLedOn: true, buzzerOn: true, alarmLedMode: 'auto',
+    statusLedMode: 'auto', buzzerMode: 'auto', alarmDisabled: false, muteUntil: 0, updatedAt: Date.now() };
+  state.reading({ val: () => safe });
+  const button = nodes.get('buzzerMode-off');
+  assert.equal(button?.disabled, false);
+  await button.listeners.click();
+  assert.equal(state.write.path, 'devices/esp32s-30p-01/commands');
+  assert.equal(state.write.values.buzzerMode, 'off');
+  assert.ok(state.write.values.commandId);
+  assert.match(nodes.get('command-status').textContent, /chờ ESP32/);
+  state.reading({ val: () => ({ ...safe, buzzerMode: 'off', buzzerOn: false,
+    appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
+  assert.match(nodes.get('command-status').textContent, /ESP32 đã áp dụng/);
+  assert.equal(nodes.get('admin-controls').hidden, true);
+  state.reading({ val: () => ({ ...safe, gasAlarm: true }) });
+  await nodes.get('mute-button').listeners.click();
+  assert.deepEqual(state.write.values.muteRequestedAt, { '.sv': 'timestamp' });
 });

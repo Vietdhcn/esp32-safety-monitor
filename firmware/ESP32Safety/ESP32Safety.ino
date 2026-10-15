@@ -9,11 +9,11 @@
 #include <Automation/ERaSmart.hpp>
 #include <Time/ERaEspTime.hpp>
 #include <HTTPClient.h>
+#include <Preferences.h>
+#include <sys/time.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <time.h>
-
-#include "gts_roots.h"
 
 // ESP32S 30P pin map retained from the original Viet.ino sketch.
 constexpr uint8_t FLAME_DO_PIN = 16;
@@ -42,6 +42,55 @@ volatile float humidityPct = NAN;
 
 String firebaseIdToken;
 unsigned long authenticatedAt = 0;
+
+// The installed 5 V relay supports on/off only. Never send PWM to this relay.
+constexpr bool FAN_SPEED_SUPPORTED = false;
+constexpr int MODE_AUTO = 0;
+constexpr int MODE_ON = 1;
+constexpr int MODE_OFF = 2;
+struct ControlCommands {
+  bool fanOn = false;
+  int alarmLedMode = MODE_AUTO;
+  int statusLedMode = MODE_AUTO;
+  int buzzerMode = MODE_AUTO;
+  bool alarmDisabled = false;
+  uint64_t muteRequestedAt = 0;
+  char commandId[65] = "";
+};
+struct AppliedOutputs {
+  bool fanOn = false;
+  bool alarmLedOn = false;
+  bool statusLedOn = true;
+  bool buzzerOn = true;
+  bool alarmDisabled = false;
+  int alarmLedMode = MODE_AUTO;
+  int statusLedMode = MODE_AUTO;
+  int buzzerMode = MODE_AUTO;
+  uint64_t muteUntil = 0;
+  char commandId[65] = "";
+};
+ControlCommands controls;
+AppliedOutputs outputs;
+portMUX_TYPE controlMux = portMUX_INITIALIZER_UNLOCKED;
+Preferences controlPreferences;
+
+uint64_t epochMillis() {
+  timeval current;
+  gettimeofday(&current, nullptr);
+  return static_cast<uint64_t>(current.tv_sec) * 1000ULL + current.tv_usec / 1000;
+}
+int parseOutputMode(const char* value, int fallback) {
+  if (strcmp(value, "auto") == 0) return MODE_AUTO;
+  if (strcmp(value, "on") == 0) return MODE_ON;
+  if (strcmp(value, "off") == 0) return MODE_OFF;
+  return fallback;
+}
+const char* outputModeName(int value) {
+  return value == MODE_ON ? "on" : value == MODE_OFF ? "off" : "auto";
+}
+bool manualOutput(int mode, bool automatic) {
+  return mode == MODE_ON || (mode == MODE_AUTO && automatic);
+}
 
 ERA_WRITE_SMS() {
   ERA_LOG("ERa", "SMS to %s: %s", to, message);
@@ -86,20 +135,16 @@ void send_data_period() {
 }
 
 ERA_WRITE(V2) {
-  // Preserve the toggle action used by the working ERa sample.
-  if (state_pan == 0) {
-    manual_pan = 1;
-    onPan();
-  } else {
-    manual_pan = 0;
-    offPan();
-  }
+  // ERa retains its toggle action; the sensor task owns all GPIO writes.
+  portENTER_CRITICAL(&controlMux);
+  controls.fanOn = state_pan == 0;
+  portEXIT_CRITICAL(&controlMux);
 }
 
 // Every Firebase request uses HTTPS with certificate validation.
 int firebaseHttp(const String& url, const char* method, const String& body, String& response) {
   WiFiClientSecure client;
-  client.setCACert(GTS_ROOT_CAS);
+  client.useBuiltinCACertBundle();
   HTTPClient http;
   if (!http.begin(client, url)) return -1;
   http.setTimeout(3500);
@@ -144,26 +189,59 @@ String firebasePath(const char* path) {
   return base + "/devices/" + DEVICE_ID + "/" + path + ".json?auth=" + firebaseIdToken;
 }
 
-void pollFanCommand() {
+void pollCommands() {
   String response;
-  const int status = firebaseHttp(firebasePath("commands/fanOn"), "GET", "", response);
-  if (status != 200 || response == "null") return;
-  JsonDocument value;
-  if (deserializeJson(value, response) == DeserializationError::Ok && value.is<bool>()) {
-    manual_pan = value.as<bool>() ? 1 : 0;
-    if (manual_pan != 0) {
-      onPan();
-    } else if (gas_sensor != LOW) {
-      offPan();
-    }
+  const int status = firebaseHttp(firebasePath("commands"), "GET", "", response);
+  if (status != 200 || response == "null") {
+    if (status != 200) Serial.printf("Firebase commands HTTP %d\n", status);
+    return;
   }
+  JsonDocument value;
+  if (deserializeJson(value, response) != DeserializationError::Ok || !value.is<JsonObject>()) return;
+  ControlCommands next;
+  portENTER_CRITICAL(&controlMux);
+  next = controls;
+  portEXIT_CRITICAL(&controlMux);
+  if (value["fanOn"].is<bool>()) next.fanOn = value["fanOn"].as<bool>();
+  if (value["alarmLedMode"].is<const char*>()) next.alarmLedMode = parseOutputMode(value["alarmLedMode"], next.alarmLedMode);
+  if (value["statusLedMode"].is<const char*>()) next.statusLedMode = parseOutputMode(value["statusLedMode"], next.statusLedMode);
+  if (value["buzzerMode"].is<const char*>()) next.buzzerMode = parseOutputMode(value["buzzerMode"], next.buzzerMode);
+  if (value["muteRequestedAt"].is<uint64_t>()) next.muteRequestedAt = value["muteRequestedAt"].as<uint64_t>();
+  bool persistDisabled = false;
+  if (value["alarmDisabled"].is<bool>()) {
+    const bool disabled = value["alarmDisabled"].as<bool>();
+    persistDisabled = disabled != next.alarmDisabled;
+    next.alarmDisabled = disabled;
+  }
+  const char* commandId = value["commandId"] | "";
+  strlcpy(next.commandId, commandId, sizeof(next.commandId));
+  if (persistDisabled) controlPreferences.putBool("alarmDisabled", next.alarmDisabled);
+  portENTER_CRITICAL(&controlMux);
+  controls = next;
+  portEXIT_CRITICAL(&controlMux);
 }
 
 void publishTelemetry() {
   JsonDocument data;
   data["flameDetected"] = flame_sensor == LOW;
   data["gasAlarm"] = gas_sensor == LOW;
-  data["fanOn"] = state_pan != 0;
+  AppliedOutputs current;
+  portENTER_CRITICAL(&controlMux);
+  current = outputs;
+  portEXIT_CRITICAL(&controlMux);
+  data["fanOn"] = current.fanOn;
+  data["alarmLedOn"] = current.alarmLedOn;
+  data["statusLedOn"] = current.statusLedOn;
+  data["buzzerOn"] = current.buzzerOn;
+  data["alarmLedMode"] = outputModeName(current.alarmLedMode);
+  data["statusLedMode"] = outputModeName(current.statusLedMode);
+  data["buzzerMode"] = outputModeName(current.buzzerMode);
+  data["controlsVersion"] = 2;
+  data["fanSpeedSupported"] = FAN_SPEED_SUPPORTED;
+  data["fanSpeedPct"] = current.fanOn ? 100 : 0;
+  data["alarmDisabled"] = current.alarmDisabled;
+  data["muteUntil"] = current.muteUntil;
+  data["appliedCommandId"] = current.commandId;
   if (MQ2_AO_CONNECTED && gasRaw >= 0) data["gasRaw"] = gasRaw;
   if (DHT11_CONNECTED && !isnan(temperatureC)) data["temperatureC"] = temperatureC;
   if (DHT11_CONNECTED && !isnan(humidityPct)) data["humidityPct"] = humidityPct;
@@ -178,7 +256,7 @@ void publishTelemetry() {
 void cloudTask(void*) {
   for (;;) {
     if (WiFi.status() == WL_CONNECTED && time(nullptr) > 1700000000 && ensureFirebaseAuth()) {
-      pollFanCommand();
+      pollCommands();
       publishTelemetry();
     }
     vTaskDelay(pdMS_TO_TICKS(2000));
@@ -190,31 +268,58 @@ void task_1(void*) {
   unsigned long lastDhtSample = 0;
   unsigned long lastStatusLog = 0;
   for (;;) {
-    // Sensor, buzzer, LED and fan behavior retained from the working sample.
     flame_sensor = digitalRead(FLAME_DO_PIN);
     gas_sensor = digitalRead(MQ2_DO_PIN);
-    if (flame_sensor == 0 || gas_sensor == 0) {
-      if (flame_sensor == 0) {
-        flame_time_detect = flame_time_detect + 1;
-        if (flame_time_detect >= 10) flame_time_detect = 10;
-      } else {
-        flame_time_detect = 0;
-      }
-      if (gas_sensor == 0) {
-        onPan();
-      } else if (manual_pan == 0) {
-        offPan();
-      }
-      digitalWrite(BUZZER_PIN, !digitalRead(BUZZER_PIN));
-      digitalWrite(ALARM_LED_PIN, !digitalRead(ALARM_LED_PIN));
+    ControlCommands command;
+    portENTER_CRITICAL(&controlMux);
+    command = controls;
+    portEXIT_CRITICAL(&controlMux);
+    manual_pan = command.fanOn ? 1 : 0;
+    const uint64_t nowEpoch = epochMillis();
+    const uint64_t muteUntil = command.muteRequestedAt > 0 ? command.muteRequestedAt + 30000ULL : 0;
+    // A timestamp from the distant future never suppresses local alarms.
+    const bool muted = nowEpoch > 1700000000000ULL && command.muteRequestedAt <= nowEpoch + 5000ULL && nowEpoch < muteUntil;
+    const bool alarm = flame_sensor == LOW || gas_sensor == LOW;
+    const bool automaticAlarm = alarm && !command.alarmDisabled;
+    if (flame_sensor == LOW && automaticAlarm) {
+      if (flame_time_detect < 10) ++flame_time_detect;
+    } else flame_time_detect = 0;
+
+    if (muted) {
+      offPan();
+      digitalWrite(BUZZER_PIN, LOW);
+      digitalWrite(ALARM_LED_PIN, LOW);
       digitalWrite(STATUS_LED_PIN, LOW);
     } else {
-      digitalWrite(BUZZER_PIN, HIGH);
-      digitalWrite(ALARM_LED_PIN, LOW);
-      digitalWrite(STATUS_LED_PIN, HIGH);
-      flame_time_detect = 0;
-      if (manual_pan == 0) offPan();
+      if ((gas_sensor == LOW && !command.alarmDisabled) || manual_pan != 0) onPan();
+      else offPan();
+      if (automaticAlarm) {
+        // Preserve the alert pulse sequence of the user's working sample.
+        digitalWrite(BUZZER_PIN, !digitalRead(BUZZER_PIN));
+        digitalWrite(ALARM_LED_PIN, !digitalRead(ALARM_LED_PIN));
+        digitalWrite(STATUS_LED_PIN, LOW);
+      } else {
+        // AUTO keeps sample idle HIGH on D13. Explicit OFF is LOW for the
+        // confirmed two-pin buzzer (+ D13, - GND). Admin-disabled AUTO is quiet.
+        digitalWrite(BUZZER_PIN, manualOutput(command.buzzerMode, !command.alarmDisabled) ? HIGH : LOW);
+        digitalWrite(ALARM_LED_PIN, manualOutput(command.alarmLedMode, false) ? HIGH : LOW);
+        digitalWrite(STATUS_LED_PIN, manualOutput(command.statusLedMode, !command.alarmDisabled) ? HIGH : LOW);
+      }
     }
+    AppliedOutputs applied;
+    applied.fanOn = state_pan != 0;
+    applied.alarmLedOn = digitalRead(ALARM_LED_PIN) == HIGH;
+    applied.statusLedOn = digitalRead(STATUS_LED_PIN) == HIGH;
+    applied.buzzerOn = digitalRead(BUZZER_PIN) == HIGH;
+    applied.alarmLedMode = command.alarmLedMode;
+    applied.statusLedMode = command.statusLedMode;
+    applied.buzzerMode = command.buzzerMode;
+    applied.alarmDisabled = command.alarmDisabled;
+    applied.muteUntil = muted ? muteUntil : 0;
+    strlcpy(applied.commandId, command.commandId, sizeof(applied.commandId));
+    portENTER_CRITICAL(&controlMux);
+    outputs = applied;
+    portEXIT_CRITICAL(&controlMux);
     if (MQ2_AO_CONNECTED) gasRaw = analogRead(MQ2_AO_PIN);
     const unsigned long now = millis();
     if (now - lastStatusLog >= 5000) {
@@ -282,9 +387,11 @@ void setup() {
     analogReadResolution(12);
     analogSetPinAttenuation(MQ2_AO_PIN, ADC_11db);
   }
-  digitalWrite(BUZZER_PIN, HIGH);
+  controlPreferences.begin("safety-control", false);
+  controls.alarmDisabled = controlPreferences.getBool("alarmDisabled", false);
+  digitalWrite(BUZZER_PIN, controls.alarmDisabled ? LOW : HIGH);
   digitalWrite(ALARM_LED_PIN, LOW);
-  digitalWrite(STATUS_LED_PIN, HIGH);
+  digitalWrite(STATUS_LED_PIN, controls.alarmDisabled ? LOW : HIGH);
   offPan();
   if (DHT11_CONNECTED) dht.begin();
 
