@@ -74,3 +74,12 @@ test('temporary mute locks outputs until expiry; admin disable allows manual ope
   assert.equal(disabled.fanOn, false);
   assert.equal(disabled.buzzerOn, false);
 });
+
+test('Admin disable overrides an earlier temporary mute immediately', () => {
+  const now = 100_000;
+  const state = { ...safe(now), gasAlarm: true, alarmDisabled: true, muteUntil: now + 20_000 };
+  assert.equal(model.canControl(state, 'fanOn', now), true);
+  const demo = model.createDemoTelemetry({ gasAlarm: true, alarmDisabled: true,
+    muteUntil: now + 20_000, manualFan: true }, now);
+  assert.equal(demo.fanOn, true);
+});

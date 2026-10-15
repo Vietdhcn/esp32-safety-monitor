@@ -29,7 +29,7 @@ export function isStale(updatedAt, now = Date.now()) {
     now - updatedAt > 15_000 || updatedAt - now > 5_000;
 }
 export const hasAlarm = telemetry => telemetry?.flameDetected === true || telemetry?.gasAlarm === true;
-export const isMuted = (telemetry, now = Date.now()) => telemetry?.muteUntil > now;
+export const isMuted = (telemetry, now = Date.now()) => telemetry?.alarmDisabled !== true && telemetry?.muteUntil > now;
 export function canSetFan(telemetry, now = Date.now()) {
   return !isStale(telemetry?.updatedAt, now) && !isMuted(telemetry, now) &&
     (telemetry?.alarmDisabled === true || (telemetry?.flameDetected === false && telemetry?.gasAlarm === false));
@@ -60,7 +60,7 @@ export function isLocalDemo(url) {
 export function createDemoTelemetry(state = {}, now = Date.now()) {
   const { manualFan = false, gasAlarm = false, flameDetected = false, fanSpeedPct = 100,
     alarmLedMode = 'auto', statusLedMode = 'auto', buzzerMode = 'auto', alarmDisabled = false, muteUntil = 0 } = state;
-  const muted = muteUntil > now;
+  const muted = !alarmDisabled && muteUntil > now;
   const alarm = (gasAlarm || flameDetected) && !alarmDisabled;
   const output = (setting, automatic) => !muted && (alarm ? automatic : setting === 'on' ||
     (setting === 'auto' && !alarmDisabled && automatic));

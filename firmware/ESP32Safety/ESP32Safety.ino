@@ -278,7 +278,7 @@ void task_1(void*) {
     const uint64_t nowEpoch = epochMillis();
     const uint64_t muteUntil = command.muteRequestedAt > 0 ? command.muteRequestedAt + 30000ULL : 0;
     // A timestamp from the distant future never suppresses local alarms.
-    const bool muted = nowEpoch > 1700000000000ULL && command.muteRequestedAt <= nowEpoch + 5000ULL && nowEpoch < muteUntil;
+    const bool muted = !command.alarmDisabled && nowEpoch > 1700000000000ULL && command.muteRequestedAt <= nowEpoch + 5000ULL && nowEpoch < muteUntil;
     const bool alarm = flame_sensor == LOW || gas_sensor == LOW;
     const bool automaticAlarm = alarm && !command.alarmDisabled;
     if (flame_sensor == LOW && automaticAlarm) {
