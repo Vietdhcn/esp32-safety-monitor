@@ -58,18 +58,6 @@ function render() {
   else if (demoMode) $('command-status').textContent = 'Nút quạt chỉ thay đổi trạng thái mẫu trên PC.';
 }
 
-function watchDevice() {
-  if (unsubscribeTelemetry) unsubscribeTelemetry();
-  unsubscribeTelemetry = onValue(ref(database, `devices/${deviceId}/telemetry`), snapshot => {
-    telemetry = normalizeTelemetry(snapshot.val());
-    render();
-  }, error => {
-    telemetry = normalizeTelemetry();
-    $('command-status').textContent = `Không đọc được dữ liệu: ${error.code || 'lỗi kết nối'}`;
-    render();
-  });
-}
-
 const required = ['apiKey', 'authDomain', 'databaseURL', 'projectId', 'appId'];
 if (demoMode) {
   const demoState = { manualFan: false, gasAlarm: false, flameDetected: false };
@@ -108,6 +96,18 @@ if (demoMode) {
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   database = getDatabase(app);
+  function watchDevice() {
+    if (unsubscribeTelemetry) unsubscribeTelemetry();
+    unsubscribeTelemetry = onValue(ref(database, `devices/${deviceId}/telemetry`), snapshot => {
+      telemetry = normalizeTelemetry(snapshot.val());
+      render();
+    }, error => {
+      telemetry = normalizeTelemetry();
+      $('command-status').textContent = `Không đọc được dữ liệu: ${error.code || 'lỗi kết nối'}`;
+      render();
+    });
+  }
+
   onAuthStateChanged(auth, user => {
     const loggedIn = Boolean(user);
     loginPanel.hidden = loggedIn;

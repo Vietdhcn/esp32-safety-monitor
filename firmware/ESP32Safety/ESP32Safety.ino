@@ -115,7 +115,12 @@ bool ensureFirebaseAuth() {
   serializeJson(request, body);
   String response;
   const String url = String("https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=") + FIREBASE_API_KEY;
-  if (firebaseHttp(url, "POST", body, response) != 200) return false;
+  const int authStatus = firebaseHttp(url, "POST", body, response);
+  if (authStatus != 200) {
+    Serial.printf("Firebase auth HTTP %d\n", authStatus);
+    return false;
+  }
+  Serial.println("Firebase auth OK");
   JsonDocument result;
   if (deserializeJson(result, response) != DeserializationError::Ok) return false;
   const char* token = result["idToken"] | "";
@@ -170,9 +175,16 @@ void cloudTask(void*) {
 // Keep the local alarm responsive even while ERa.begin waits for Wi-Fi.
 void sensorTask(void*) {
   unsigned long lastDhtSample = 0;
+  unsigned long lastStatusLog = 0;
   for (;;) {
     readSensors();
     const unsigned long now = millis();
+    if (now - lastStatusLog >= 5000) {
+      lastStatusLog = now;
+      Serial.printf("Monitor WiFi=%d time=%lld flame=%d gas=%d fan=%d\n",
+                    static_cast<int>(WiFi.status()), static_cast<long long>(time(nullptr)),
+                    flameDetected, gasAlarm, fanOn);
+    }
     if (DHT11_CONNECTED && now - lastDhtSample >= 2500) {
       lastDhtSample = now;
       readDht();
