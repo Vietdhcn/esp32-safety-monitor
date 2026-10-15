@@ -63,10 +63,11 @@ function renderControls(stale, alarm) {
   const muted = isMuted(telemetry);
   const progress = commandProgress(pending, telemetry);
   if (progress === 'applied') { commandMessage = 'ESP32 đã áp dụng lệnh.'; pending = null; }
-  if (progress === 'timeout') { commandMessage = 'Chưa nhận xác nhận từ ESP32 sau 20 giây. Kiểm tra trạng thái trước khi thử lại.'; pending = null; }
-  const busy = sending || pending != null;
+  if (progress === 'timeout') { commandMessage = 'ESP32 chưa xác nhận lệnh sau 20 giây. Kiểm tra trạng thái thiết bị.'; pending = null; }
+  const busy = sending;
+  const requestedFanOn = pending?.values?.fanOn ?? telemetry.fanOn;
   $('fan-button').disabled = busy || !canControl(telemetry, 'fanOn');
-  $('fan-button').textContent = telemetry.fanOn ? 'Tắt quạt' : 'Bật quạt';
+  $('fan-button').textContent = requestedFanOn ? 'Tắt quạt' : 'Bật quạt';
   $('fan-mode').textContent = stale || telemetry.fanOn == null ? 'Chưa có dữ liệu mới' : telemetry.gasAlarm ? 'Tự bật khi có gas' : telemetry.fanOn ? 'Ngõ ra đang bật' : 'Ngõ ra đang tắt';
   $('automation-status').textContent = 'LED lửa và LED gas theo riêng từng cảm biến. Còi báo khi có nguy cơ; quạt tự bật khi có gas.';
   $('suppression-banner').hidden = !muted;
@@ -185,9 +186,9 @@ if (demoMode) {
   });
   $('sign-out').addEventListener('click', () => signOut(auth));
   sendCommand = async values => {
-    if (sending || pending) return;
+    if (sending) return;
     const commandId = crypto.randomUUID();
-    pending = { id: commandId, sentAt: Date.now() };
+    pending = { id: commandId, sentAt: Date.now(), values };
     sending = true;
     commandMessage = '';
     render();
@@ -207,7 +208,8 @@ if (demoMode) {
 }
 
 $('fan-button').addEventListener('click', () => {
-  if (canControl(telemetry, 'fanOn')) return sendCommand(telemetry.fanOn ? { fanOn: false } :
+  const requestedFanOn = pending?.values?.fanOn ?? telemetry.fanOn;
+  if (canControl(telemetry, 'fanOn')) return sendCommand(requestedFanOn ? { fanOn: false } :
     { fanOn: true, ...(telemetry.fanSpeedSupported === true && telemetry.fanSpeedPct === 0 ? { fanSpeedPct: 100 } : {}) });
 });
 $('fan-speed').addEventListener('input', () => { speedDraft = Number($('fan-speed').value); render(); });

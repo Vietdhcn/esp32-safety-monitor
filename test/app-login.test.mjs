@@ -59,19 +59,26 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(state.write.values.buzzerMode, 'off');
   assert.ok(state.write.values.commandId);
   assert.match(nodes.get('command-status').textContent, /chờ ESP32/);
+  assert.equal(nodes.get('fan-button').disabled, false, 'unrelated controls remain available while awaiting acknowledgement');
   state.reading({ val: () => ({ ...safe, buzzerMode: 'off', buzzerOn: false,
     appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
   assert.match(nodes.get('command-status').textContent, /ESP32 đã áp dụng/);
   await nodes.get('fan-button').listeners.click();
   assert.equal(state.write.values.fanOn, true);
   assert.equal(state.write.values.fanSpeedPct, 100);
-  state.reading({ val: () => ({ ...safe, fanOn: true, fanSpeedPct: 100,
-    appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
+  const firstFanCommandId = state.write.values.commandId;
+  assert.equal(nodes.get('fan-button').disabled, false, 'Firebase write must not lock controls until ESP32 acknowledgement');
   assert.equal(nodes.get('fan-button').textContent, 'Tắt quạt');
   await nodes.get('fan-button').listeners.click();
   assert.equal(state.write.values.fanOn, false);
+  assert.notEqual(state.write.values.commandId, firstFanCommandId);
+  state.reading({ val: () => ({ ...safe, fanOn: true, fanSpeedPct: 100,
+    appliedCommandId: firstFanCommandId, updatedAt: Date.now() }) });
+  assert.match(nodes.get('command-status').textContent, /chờ ESP32/);
+  assert.equal(nodes.get('fan-button').textContent, 'Bật quạt');
   state.reading({ val: () => ({ ...safe, fanOn: false,
     appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
+  assert.match(nodes.get('command-status').textContent, /ESP32 đã áp dụng/);
   nodes.get('fan-speed').value = '40';
   nodes.get('fan-speed').listeners.input();
   await nodes.get('speed-button').listeners.click();
