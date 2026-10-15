@@ -1,3 +1,4 @@
 firmware/ESP32Safety/secrets.h
+CodeESP32/
 .deps/
 node_modules/
