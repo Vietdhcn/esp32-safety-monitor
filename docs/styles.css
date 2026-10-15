@@ -11,3 +11,9 @@
 .connection{min-width:275px}
 @media(max-width:1100px){.intro{display:block}.intro h1{white-space:normal;text-wrap:balance}.connection{margin-top:24px;width:max-content;max-width:100%}}
 @media(max-width:750px){.intro h1{font-size:clamp(2.3rem,8vw,4rem)}}
+
+.detail-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"gas controls" "fan controls"}
+.gas-panel{grid-area:gas}.fan-panel{grid-area:fan}.control-panel{grid-area:controls}
+.fan-panel>.reading-note{margin-bottom:0}
+.meter span{background:var(--accent)}.meter.alert span{background:var(--danger)}
+@media(max-width:750px){.detail-grid{grid-template-areas:"gas" "fan" "controls"}}

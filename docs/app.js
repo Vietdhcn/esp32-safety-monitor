@@ -52,6 +52,7 @@ function render() {
   showReading('gas-percent', percent, '%');
   $('gas-raw').textContent = `Giá trị ADC: ${raw == null ? '—' : raw} / 4095`;
   $('gas-fill').style.width = `${percent ?? 0}%`;
+  $('gas-meter').classList.toggle('alert', !stale && telemetry.gasAlarm === true);
   $('gas-meter').setAttribute('aria-valuenow', String(percent ?? 0));
   $('gas-meter').setAttribute('aria-valuetext', percent == null ? 'Chưa có dữ liệu' : `${percent}% tín hiệu ADC`);
 
