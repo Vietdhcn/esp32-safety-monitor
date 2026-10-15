@@ -15,9 +15,11 @@ ESP32 đọc cảm biến và điều khiển đầu ra tại chỗ; Firebase Re
 | DHT11 DATA | 27 | Tùy chọn, bật `DHT11_CONNECTED` sau khi đấu dây |
 | MQ-2 AO | 34 | Tùy chọn, bật `MQ2_AO_CONNECTED` sau khi qua mạch chia áp |
 
-Ảnh mạch người dùng gửi cho thấy module HW-020/L9110S hai kênh, không phải relay. Bảng trên theo cách code cũ chạy quạt ở D32 HIGH, D33 LOW; kiểm tra lại hai dây điều khiển thực tế trước khi nạp. PWM là **mức điều khiển 0–100%**, không phải tốc độ RPM đo được. Gas luôn ép quạt 100%; điều khiển tay chỉ áp dụng khi không có gas. Nút **Tắt quạt** có hiệu lực ở chế độ tay. Mức 0% tương đương tắt quạt.
+Ảnh mạch người dùng gửi cho thấy module HW-020/L9110S hai kênh, không phải relay. Bảng trên theo cách code cũ chạy quạt ở D32 HIGH, D33 LOW; kiểm tra lại hai dây điều khiển thực tế trước khi nạp. PWM là **mức điều khiển 0–100%**, không phải tốc độ RPM đo được. Gas luôn ép quạt 100%; điều khiển tay chỉ áp dụng khi không có gas. Nút **Tắt quạt** có hiệu lực ở chế độ tay. Có thể lưu mức PWM khi quạt tắt mà không bật quạt; khi quạt đang chạy, mức mới áp dụng ở vòng điều khiển tiếp theo. Mức 0% tương đương tắt quạt; nút bật quạt sẽ khôi phục mức 100% nếu mức đang lưu là 0%.
 
 MQ-2 dùng nguồn phù hợp module. Nếu DO/AO lên 5 V, phải hạ về tối đa 3,3 V trước khi vào ESP32; nối chung GND. MQ-2 cần thời gian làm nóng và chỉnh ngưỡng DO trên biến trở. Giá trị AO trên web chỉ là tỷ lệ ADC, không phải ppm. Driver L9110S cần nguồn quạt riêng phù hợp điện áp và dòng của quạt; không lấy nguồn motor trực tiếp từ GPIO.
+
+Nếu thử gas mà **đèn báo DO trên chính module lửa** cũng sáng, ESP32 sẽ nhận cả hai cảnh báo; web không thể phân biệt đó là lửa thật hay tín hiệu giả từ module. Kiểm tra chân VCC của module lửa có nguồn 3,3 V ổn định (không lấy từ chân LED/còi/quạt), GND chung, dây DO về GPIO16 và dây MQ-2 DO về GPIO17. Chỉnh biến trở ngưỡng của module lửa để DO không kích hoạt khi chỉ xả gas từ bật lửa chưa châm, nhưng vẫn kích hoạt khi có lửa; kiểm tra lại khi bật và tắt quạt/còi để phát hiện nhiễu nguồn. Không tắt cảnh báo lửa bằng mã khi gas xuất hiện, vì hệ thống phải báo cả hai nếu hai cảm biến thật sự kích hoạt.
 
 ## Logic cảnh báo
 

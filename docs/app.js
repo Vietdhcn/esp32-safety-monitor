@@ -84,13 +84,14 @@ function renderControls(stale, alarm) {
   }
   const speedAllowed = canControl(telemetry, 'fanSpeedPct');
   if (!speedAllowed) speedDraft = null;
+  const selectedSpeed = speedDraft ?? pending?.values?.fanSpeedPct ?? telemetry.fanSpeedPct ?? 100;
   $('fan-speed').disabled = busy || !speedAllowed;
-  $('speed-button').disabled = busy || !speedAllowed;
-  if (speedDraft == null) $('fan-speed').value = String(telemetry.fanSpeedPct ?? 100);
-  $('fan-speed-value').textContent = telemetry.fanSpeedSupported === true && !stale ? `${speedDraft ?? telemetry.fanSpeedPct ?? 100}%${speedDraft == null ? '' : ' (chưa áp dụng)'}` : '—';
+  $('speed-button').disabled = busy || !speedAllowed || speedDraft == null || speedDraft === (pending?.values?.fanSpeedPct ?? telemetry.fanSpeedPct);
+  if (speedDraft == null) $('fan-speed').value = String(selectedSpeed);
+  $('fan-speed-value').textContent = telemetry.fanSpeedSupported === true && !stale ? `${selectedSpeed}%${speedDraft == null ? pending?.values?.fanSpeedPct == null ? '' : ' (đang cập nhật)' : ' (chưa áp dụng)'}` : '—';
   $('speed-help').textContent = telemetry.gasAlarm && !stale ?
     'Gas đang báo: quạt tự chạy 100%. Có thể tạm tắt đầu ra trong 30 giây.' : telemetry.fanSpeedSupported === true ?
-    'Mức PWM đặt vào mạch điều khiển quạt; không phải tốc độ RPM đo được.' :
+    telemetry.fanOn ? 'Đổi mức PWM sẽ áp dụng ngay khi ESP32 nhận lệnh; không phải tốc độ RPM đo được.' : 'Lưu mức PWM cho lần bật quạt tiếp theo; không tự bật quạt.' :
     'Cần firmware mới và mạch motor hỗ trợ PWM để chỉnh tốc độ.';
   $('mute-button').disabled = busy || !canMute(telemetry);
   const help = stale ? 'Cần dữ liệu mới từ ESP32 để điều khiển.' : telemetry.controlsVersion !== 2 ?
@@ -209,15 +210,16 @@ if (demoMode) {
 
 $('fan-button').addEventListener('click', () => {
   const requestedFanOn = pending?.values?.fanOn ?? telemetry.fanOn;
+  const requestedSpeed = pending?.values?.fanSpeedPct ?? telemetry.fanSpeedPct;
   if (canControl(telemetry, 'fanOn')) return sendCommand(requestedFanOn ? { fanOn: false } :
-    { fanOn: true, ...(telemetry.fanSpeedSupported === true && telemetry.fanSpeedPct === 0 ? { fanSpeedPct: 100 } : {}) });
+    { fanOn: true, ...(telemetry.fanSpeedSupported === true && (pending?.values?.fanSpeedPct != null || requestedSpeed === 0) ? { fanSpeedPct: requestedSpeed || 100 } : {}) });
 });
 $('fan-speed').addEventListener('input', () => { speedDraft = Number($('fan-speed').value); render(); });
 $('speed-button').addEventListener('click', () => {
   const value = speedDraft ?? Number($('fan-speed').value);
-  if (!canControl(telemetry, 'fanSpeedPct') || !validCommand('fanSpeedPct', value)) return;
+  if (speedDraft == null || !canControl(telemetry, 'fanSpeedPct') || !validCommand('fanSpeedPct', value)) return;
   speedDraft = null;
-  return sendCommand({ fanSpeedPct: value, fanOn: value > 0 });
+  return sendCommand({ fanSpeedPct: value });
 });
 for (const key of modeKeys) for (const value of ['auto', 'on', 'off']) {
   $(key + '-' + value).addEventListener('click', () => {

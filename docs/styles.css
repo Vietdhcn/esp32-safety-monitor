@@ -14,6 +14,7 @@
 
 .detail-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"gas controls" "fan controls"}
 .gas-panel{grid-area:gas}.fan-panel{grid-area:fan}.control-panel{grid-area:controls}
+.control-panel{align-self:stretch}
 .fan-panel>.reading-note{margin-bottom:0}
 .meter span{background:var(--accent)}.meter.alert span{background:var(--danger)}
 @media(max-width:750px){.detail-grid{grid-template-areas:"gas" "fan" "controls"}}

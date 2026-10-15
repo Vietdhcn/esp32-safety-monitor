@@ -79,12 +79,26 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   state.reading({ val: () => ({ ...safe, fanOn: false,
     appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
   assert.match(nodes.get('command-status').textContent, /ESP32 đã áp dụng/);
+  assert.equal(nodes.get('speed-button').disabled, true, 'unchanged PWM has nothing to apply');
   nodes.get('fan-speed').value = '40';
   nodes.get('fan-speed').listeners.input();
+  assert.equal(nodes.get('speed-button').disabled, false, 'PWM can be saved while fan is off');
   await nodes.get('speed-button').listeners.click();
   assert.equal(state.write.values.fanSpeedPct, 40);
+  assert.equal('fanOn' in state.write.values, false, 'saving PWM must not start the fan');
+  assert.equal(nodes.get('fan-button').textContent, 'Bật quạt');
+  await nodes.get('fan-button').listeners.click();
   assert.equal(state.write.values.fanOn, true);
+  assert.equal(state.write.values.fanSpeedPct, 40, 'immediate fan start carries the newly saved PWM before telemetry catches up');
+  assert.equal(nodes.get('fan-speed-value').textContent, '40% (đang cập nhật)');
   state.reading({ val: () => ({ ...safe, fanOn: true, fanSpeedPct: 40,
+    appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
+  nodes.get('fan-speed').value = '65';
+  nodes.get('fan-speed').listeners.input();
+  await nodes.get('speed-button').listeners.click();
+  assert.equal(state.write.values.fanSpeedPct, 65);
+  assert.equal('fanOn' in state.write.values, false, 'changing PWM while running preserves fan state');
+  state.reading({ val: () => ({ ...safe, fanOn: true, fanSpeedPct: 65,
     appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
   state.reading({ val: () => ({ ...safe, gasAlarm: true }) });
   assert.equal(nodes.get('speed-button').disabled, true);
