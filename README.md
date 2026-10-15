@@ -4,7 +4,7 @@ Dashboard GitHub Pages theo dõi cảm biến lửa, MQ-2, relay quạt, nhiệt
 
 ## Trạng thái hiện tại
 
-Code gốc tại `E:\01. PTJT\05. HK5\02. Hệ thống nhúng\01. BTL-Nhúng\CodeESP32\Viet.ino` dùng chân của **ESP32S 30P**, không phải ESP32-C3 MINI. Sketch mới nằm trong `firmware/ESP32Safety/`. Các chân đang dùng được giữ lại. Chưa có dữ liệu thật trên web cho đến khi bạn cấu hình Firebase, nạp sketch và đấu thêm DHT11/MQ-2 AO.
+Code gốc tại `E:\01. PTJT\05. HK5\02. Hệ thống nhúng\01. BTL-Nhúng\CodeESP32\Viet\Viet.ino` dùng chân của **ESP32S 30P**, không phải ESP32-C3 MINI. Sketch mới nằm trong `firmware/ESP32Safety/`. Các chân đang dùng được giữ lại. Chưa có dữ liệu thật trên web cho đến khi bạn cấu hình Firebase, nạp sketch và đấu thêm DHT11/MQ-2 AO.
 
 | Thiết bị | GPIO ESP32S 30P | Ghi chú |
 |---|---:|---|
@@ -40,7 +40,7 @@ Sketch đọc DO mỗi 100 ms để tự bật quạt khi có cảnh báo gas, k
 
 - Kiểm thử logic giao diện: `npm test`.
 - Xem tại máy: `python -m http.server 8000 --directory docs`, sau đó mở `http://localhost:8000`.
-- Đưa repository lên GitHub. Trong **Settings → Pages**, chọn **Deploy from a branch**, nhánh `main`, thư mục `/docs`. URL sẽ là `https://<tên-tài-khoản>.github.io/<tên-repo>/`.
+- Repository đã được đưa lên GitHub và GitHub Pages đã chọn nhánh `main`, thư mục `/docs`: `https://vietdhcn.github.io/esp32-safety-monitor/`.
 
 Tài khoản GitHub không thay thế Firebase: GitHub chứa mã web, Firebase cung cấp dữ liệu thời gian thực. Trước khi đưa code gốc lên GitHub, đổi token ERa và mật khẩu Wi-Fi đã có trong `Viet.ino`; repository này không chứa các giá trị đó.
 
