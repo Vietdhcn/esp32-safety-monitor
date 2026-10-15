@@ -23,9 +23,9 @@ Code gốc tại `E:\01. PTJT\05. HK5\02. Hệ thống nhúng\01. BTL-Nhúng\Cod
 
 GitHub Pages chỉ phục vụ HTML/CSS/JavaScript, nên cần Firebase làm nơi trung chuyển dữ liệu và lệnh.
 
-1. Project Firebase **esp32-safety-monitor-68725**, Web app và Realtime Database tại Singapore đã được tạo. Rules hiện mặc định chặn mọi truy cập.
-2. **Authentication → Email/Password** đã bật. Tạo hai tài khoản riêng: chủ sở hữu để đăng nhập web và thiết bị ESP32 để gửi số đo. Ghi lại UID của từng tài khoản.
-3. Mở `firebase.rules.template.json`, thay `OWNER_UID_HERE` và `DEVICE_UID_HERE` bằng hai UID vừa tạo; dán nội dung vào **Realtime Database → Rules** và Publish. Hai tài khoản phải có UID khác nhau. Rules chỉ cho tài khoản thiết bị ghi telemetry, chủ sở hữu ghi lệnh quạt.
+1. Project Firebase **esp32-safety-monitor-68725**, Web app và Realtime Database tại Singapore đã được tạo.
+2. **Authentication → Email/Password** đã bật. Hai tài khoản đã được tạo: chủ sở hữu và thiết bị ESP32. UID của hai tài khoản đã được điền vào `firebase.rules.json`; `firebase.rules.template.json` là mẫu để cấu hình lại khi đổi tài khoản.
+3. Nội dung `firebase.rules.json` đã được xuất bản trong **Realtime Database → Rules**. Quy tắc chỉ cho tài khoản thiết bị ghi telemetry, chủ sở hữu ghi lệnh quạt và mặc định chặn truy cập khác.
 4. Thông số Web app đã có trong `docs/config.js`. Firebase Web config là định danh công khai, không phải mật khẩu. Bảo vệ dữ liệu bằng Rules ở bước 3.
 5. Sao chép `firmware/ESP32Safety/secrets.example.h` thành `firmware/ESP32Safety/secrets.h`, điền Wi-Fi, **token ERa mới**, Firebase API key, Database URL và email/mật khẩu **tài khoản thiết bị**. File `secrets.h` đã bị Git bỏ qua. Không đặt tài khoản chủ sở hữu, mật khẩu, token ERa hoặc private key trong `docs/`.
 6. Sau khi đấu DHT11 vào GPIO27, đổi `DHT11_CONNECTED` thành `true`. Sau khi đấu MQ-2 AO qua chia áp vào GPIO34, đổi `MQ2_AO_CONNECTED` thành `true`. Giữ `false` nếu chưa đấu; web sẽ hiển thị `—` thay cho số đo giả.

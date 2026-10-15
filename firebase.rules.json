@@ -1,0 +1,22 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "devices": {
+      "esp32s-30p-01": {
+        "telemetry": {
+          ".read": "auth != null && (auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2' || auth.uid === 'NfMfoVPKh3fAHQedBJ93DumnkMn1')",
+          ".write": "auth != null && auth.uid === 'NfMfoVPKh3fAHQedBJ93DumnkMn1'",
+          ".validate": "newData.hasChildren(['flameDetected', 'gasAlarm', 'fanOn', 'updatedAt']) && newData.child('flameDetected').isBoolean() && newData.child('gasAlarm').isBoolean() && newData.child('fanOn').isBoolean() && newData.child('updatedAt').isNumber() && newData.child('updatedAt').val() <= now + 5000 && newData.child('updatedAt').val() >= now - 30000 && (!newData.child('gasRaw').exists() || (newData.child('gasRaw').isNumber() && newData.child('gasRaw').val() >= 0 && newData.child('gasRaw').val() <= 4095)) && (!newData.child('temperatureC').exists() || (newData.child('temperatureC').isNumber() && newData.child('temperatureC').val() >= -40 && newData.child('temperatureC').val() <= 80)) && (!newData.child('humidityPct').exists() || (newData.child('humidityPct').isNumber() && newData.child('humidityPct').val() >= 0 && newData.child('humidityPct').val() <= 100))"
+        },
+        "commands": {
+          "fanOn": {
+            ".read": "auth != null && (auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2' || auth.uid === 'NfMfoVPKh3fAHQedBJ93DumnkMn1')",
+            ".write": "auth != null && auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2'",
+            ".validate": "newData.isBoolean()"
+          }
+        }
+      }
+    }
+  }
+}
