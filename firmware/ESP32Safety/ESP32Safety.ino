@@ -216,7 +216,39 @@ void setup() {
 
   xTaskCreatePinnedToCore(sensorTask, "sensors", 6144, nullptr, 2, nullptr, 0);
 
-  ERa.setScanWiFi(true);
+  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+      Serial.printf("WiFi disconnect reason=%u\n", info.wifi_sta_disconnected.reason);
+    }
+  });
+  WiFi.mode(WIFI_STA);
+  const int networkCount = WiFi.scanNetworks(false, true);
+  struct WifiCandidate { int32_t channel; uint8_t bssid[6]; };
+  WifiCandidate candidates[8];
+  int candidateCount = 0;
+  for (int i = 0; i < networkCount && candidateCount < 8; ++i) {
+    if (WiFi.SSID(i) == WIFI_SSID) {
+      candidates[candidateCount].channel = WiFi.channel(i);
+      memcpy(candidates[candidateCount].bssid, WiFi.BSSID(i), 6);
+      ++candidateCount;
+    }
+  }
+  Serial.printf("WiFi scan count=%d targetCount=%d\n", networkCount, candidateCount);
+  WiFi.scanDelete();
+  for (int i = 0; i < candidateCount; ++i) {
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, candidates[i].channel, candidates[i].bssid);
+    const unsigned long started = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - started < 12000) {
+      delay(100);
+    }
+    const bool connected = WiFi.status() == WL_CONNECTED;
+    Serial.printf("WiFi candidate channel=%d connected=%d\n", candidates[i].channel, connected);
+    if (connected) break;
+    WiFi.disconnect(false, false);
+    delay(500);
+  }
+
+  ERa.setScanWiFi(false);
   ERa.begin(WIFI_SSID, WIFI_PASSWORD);
   configTime(0, 0, "pool.ntp.org", "time.google.com");
   ERa.addInterval(1000L, sendEraTelemetry);

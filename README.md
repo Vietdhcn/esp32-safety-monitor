@@ -4,7 +4,9 @@ Dashboard GitHub Pages theo dõi cảm biến lửa, MQ-2, relay quạt, nhiệt
 
 ## Trạng thái hiện tại
 
-Code gốc tại `E:\01. PTJT\05. HK5\02. Hệ thống nhúng\01. BTL-Nhúng\CodeESP32\Viet\Viet.ino` dùng chân của **ESP32S 30P**, không phải ESP32-C3 MINI. Sketch mới nằm trong `firmware/ESP32Safety/`. Các chân đang dùng được giữ lại. Chưa có dữ liệu thật trên web cho đến khi bạn cấu hình Firebase, nạp sketch và đấu thêm DHT11/MQ-2 AO.
+Bản làm việc cục bộ đã được gộp vào một file `CodeESP32/BaiTapLon.ino` theo yêu cầu. File này chứa cấu hình riêng và được Git bỏ qua. Bản cũ được lưu trong `CodeESP32/.backup/`; mã nguồn có thể chia sẻ nằm trong `firmware/ESP32Safety/` và đọc cấu hình từ `secrets.h`.
+
+Board **ESP32S 30P / ESP32-D0WD-V3, flash 4 MB** đã được nạp qua COM10. Firebase đã nhận liên tục trạng thái cảm biến lửa, cảnh báo gas DO và relay. DHT11 và MQ-2 AO chưa được nối, nên các số đo tương ứng chưa có dữ liệu.
 
 | Thiết bị | GPIO ESP32S 30P | Ghi chú |
 |---|---:|---|
@@ -36,6 +38,10 @@ Trong Arduino IDE, chọn board **ESP32 Dev Module** cho ESP32S 30P và **Partit
 
 Sketch đọc DO mỗi 100 ms để tự bật quạt khi có cảnh báo gas, kể cả khi web/Firebase mất kết nối. DHT11 được đọc mỗi 2,5 giây. Firebase được cập nhật khoảng 2 giây một lần. Khi dữ liệu quá 15 giây, web báo ngoại tuyến và khóa điều khiển thủ công. Lệnh thủ công từ ERa V2 và web được áp dụng theo trạng thái nhận mới nhất; cảnh báo gas luôn buộc quạt bật.
 
+Khi khởi động, sketch quét và thử lần lượt tối đa 8 điểm phát có cùng tên Wi-Fi đã cấu hình, mỗi điểm tối đa 12 giây. Cách này đã xử lý trường hợp thực tế hai điểm phát cùng tên: điểm mạnh nhất xác thực thất bại, điểm còn lại kết nối và gửi dữ liệu Firebase thành công. Tác vụ cảm biến vẫn chạy trong lúc kết nối. Serial Monitor 115200 hiển thị mã trạng thái Wi-Fi, lỗi ngắt kết nối và kết quả xác thực Firebase; không in mật khẩu.
+
+Nếu mở `CodeESP32/BaiTapLon.ino` bằng Arduino IDE, IDE có thể yêu cầu chuyển file vào thư mục `BaiTapLon` trùng tên sketch. Chọn đồng ý; toàn bộ mã vẫn nằm trong một file `.ino`.
+
 ## Chạy web và đưa lên GitHub Pages
 
 - Kiểm thử logic giao diện: `npm test`.
@@ -43,7 +49,7 @@ Sketch đọc DO mỗi 100 ms để tự bật quạt khi có cảnh báo gas, k
 - Xem trước dashboard khi chưa có tài khoản Firebase/ESP32: mở `http://localhost:8000/?demo=1`. Chế độ này chỉ chạy trên localhost và dùng số liệu mẫu; nút quạt không gửi lệnh đến thiết bị.
 - Repository đã được đưa lên GitHub và GitHub Pages đã chọn nhánh `main`, thư mục `/docs`: `https://vietdhcn.github.io/esp32-safety-monitor/`.
 
-Tài khoản GitHub không thay thế Firebase: GitHub chứa mã web, Firebase cung cấp dữ liệu thời gian thực. `CodeESP32/` được Git bỏ qua vì `Viet.ino` chứa token ERa và mật khẩu Wi-Fi cũ. Hãy đổi các giá trị đó trước khi công khai code gốc; repository này không chứa chúng.
+Tài khoản GitHub không thay thế Firebase: GitHub chứa mã web, Firebase cung cấp dữ liệu thời gian thực. `CodeESP32/` được Git bỏ qua vì sketch và các bản sao lưu chứa token ERa, mật khẩu Wi-Fi và mật khẩu thiết bị. Repository không chứa cấu hình riêng này.
 
 ## Nguồn kỹ thuật
 
