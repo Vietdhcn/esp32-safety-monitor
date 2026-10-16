@@ -1,10 +1,12 @@
-/* Giao diện kiểu Windows 11 (Fluent): nền Mica xám nhạt, thẻ trắng, điểm nhấn đen; chế độ tối dùng đen/than. */
+/* Giao diện sáng giữ kiểu Fluent; giao diện tối dùng bảng màu GitHub Primer. */
 :root {
   color-scheme: light;
   --bg: #f3f3f3;
   --bg-gradient: linear-gradient(160deg, #fbfbfb 0%, #f3f3f3 70%);
   --card: #ffffff;
   --card-hover: #fbfbfb;
+  --button-bg: #ffffff;
+  --button-hover-bg: #fbfbfb;
   --subtle-fill: #f6f6f6;
   --subtle-fill-hover: #ededed;
   --stroke: #e5e5e5;
@@ -30,56 +32,60 @@
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #202020;
-  --bg-gradient: linear-gradient(160deg, #282828 0%, #202020 70%);
-  --card: #2b2b2b;
-  --card-hover: #303030;
-  --subtle-fill: #333333;
-  --subtle-fill-hover: #3b3b3b;
-  --stroke: #3a3a3a;
-  --stroke-strong: #4a4a4a;
-  --text: #ffffff;
-  --text-2: #c8c8c8;
-  --text-3: #9a9a9a;
-  --accent: #ffffff;
-  --accent-hover: #e5e5e5;
-  --on-accent: #111111;
-  --focus: #ffffff;
-  --danger: #ff99a4;
-  --danger-fill: #442726;
-  --success: #6ccb5f;
-  --success-fill: #393d1b;
-  --caution: #fce100;
-  --caution-fill: #433519;
-  --info-fill: #333333;
-  --shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 2px 8px rgba(0, 0, 0, .18);
+  --bg: #0d1117;
+  --bg-gradient: none;
+  --card: #151b23;
+  --card-hover: #1b222c;
+  --button-bg: #212830;
+  --button-hover-bg: #262c36;
+  --subtle-fill: #212830;
+  --subtle-fill-hover: #262c36;
+  --stroke: #30363d;
+  --stroke-strong: #3d444d;
+  --text: #f0f6fc;
+  --text-2: #c9d1d9;
+  --text-3: #9198a1;
+  --accent: #1f6feb;
+  --accent-hover: #4493f8;
+  --on-accent: #ffffff;
+  --focus: #4493f8;
+  --danger: #f85149;
+  --danger-fill: #f851491a;
+  --success: #3fb950;
+  --success-fill: #2ea04326;
+  --caution: #d29922;
+  --caution-fill: #bb800926;
+  --info-fill: #212830;
+  --shadow: 0 1px 3px rgba(1, 4, 9, .24);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #202020;
-    --bg-gradient: linear-gradient(160deg, #282828 0%, #202020 70%);
-    --card: #2b2b2b;
-    --card-hover: #303030;
-    --subtle-fill: #333333;
-    --subtle-fill-hover: #3b3b3b;
-    --stroke: #3a3a3a;
-    --stroke-strong: #4a4a4a;
-    --text: #ffffff;
-    --text-2: #c8c8c8;
-    --text-3: #9a9a9a;
-    --accent: #ffffff;
-    --accent-hover: #e5e5e5;
-    --on-accent: #111111;
-    --focus: #ffffff;
-    --danger: #ff99a4;
-    --danger-fill: #442726;
-    --success: #6ccb5f;
-    --success-fill: #393d1b;
-    --caution: #fce100;
-    --caution-fill: #433519;
-    --info-fill: #333333;
-    --shadow: 0 1px 2px rgba(0, 0, 0, .25), 0 2px 8px rgba(0, 0, 0, .18);
+    --bg: #0d1117;
+    --bg-gradient: none;
+    --card: #151b23;
+    --card-hover: #1b222c;
+    --button-bg: #212830;
+    --button-hover-bg: #262c36;
+    --subtle-fill: #212830;
+    --subtle-fill-hover: #262c36;
+    --stroke: #30363d;
+    --stroke-strong: #3d444d;
+    --text: #f0f6fc;
+    --text-2: #c9d1d9;
+    --text-3: #9198a1;
+    --accent: #1f6feb;
+    --accent-hover: #4493f8;
+    --on-accent: #ffffff;
+    --focus: #4493f8;
+    --danger: #f85149;
+    --danger-fill: #f851491a;
+    --success: #3fb950;
+    --success-fill: #2ea04326;
+    --caution: #d29922;
+    --caution-fill: #bb800926;
+    --info-fill: #212830;
+    --shadow: 0 1px 3px rgba(1, 4, 9, .24);
   }
 }
 
@@ -138,8 +144,8 @@ footer { padding: 20px 0 24px; font-size: 12px; text-align: center; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 6px transparent; opacity: .82; } }
 
 /* Nút */
-.button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 32px; padding: 5px 14px; border: 1px solid var(--stroke-strong); border-bottom-color: color-mix(in srgb, var(--stroke-strong) 70%, #000 30%); border-radius: var(--radius-sm); background: var(--card); color: var(--text); font-size: 14px; white-space: nowrap; }
-.button:hover:not(:disabled) { background: var(--card-hover); }
+.button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 32px; padding: 5px 14px; border: 1px solid var(--stroke-strong); border-bottom-color: color-mix(in srgb, var(--stroke-strong) 70%, #000 30%); border-radius: var(--radius-sm); background: var(--button-bg); color: var(--text); font-size: 14px; white-space: nowrap; }
+.button:hover:not(:disabled) { background: var(--button-hover-bg); }
 .button:active:not(:disabled) { background: var(--subtle-fill); color: var(--text-2); }
 .button:disabled { opacity: .45; }
 .button-accent { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 600; }
@@ -149,6 +155,8 @@ footer { padding: 20px 0 24px; font-size: 12px; text-align: center; }
 .button-danger { border-color: transparent; background: transparent; color: var(--danger); }
 .button-danger:hover:not(:disabled) { background: var(--danger-fill); }
 .button[aria-pressed="true"], .button[aria-pressed="true"]:hover:not(:disabled) { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+#demo-flame, #demo-gas { inline-size: 110px; }
+#mute-button { inline-size: 122px; }
 .segment[aria-pressed="true"]:hover:not(:disabled) { background: var(--accent-hover); color: var(--on-accent); }
 .icon-button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); }
 .icon-button:hover { background: var(--subtle-fill); }
@@ -204,7 +212,7 @@ form input[type="email"]:focus, form input[type="password"]:focus { outline: non
 .metric-head { display: flex; align-items: center; gap: 10px; }
 .metric-head h3 { font-size: 13px; font-weight: 400; color: var(--text-2); }
 .metric-card strong { margin-top: 6px; font-size: 22px; font-weight: 600; line-height: 1.25; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.metric-card p { font-size: 12px; }
+.metric-card p { min-block-size: 2.9em; font-size: 12px; }
 .metric-card.alert { border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: var(--danger-fill); }
 .metric-card.alert strong, .metric-card.alert .tile-icon { color: var(--danger); }
 .tile-icon { display: grid; place-items: center; width: 32px; height: 32px; flex: none; border-radius: 6px; background: var(--subtle-fill); color: var(--text); }
@@ -267,6 +275,7 @@ form input[type="email"]:focus, form input[type="password"]:focus { outline: non
 }
 @media (max-width: 380px) {
   .metric-grid { grid-template-columns: 1fr; }
+  .metric-card p { min-block-size: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   .badge-danger { animation: none; }
