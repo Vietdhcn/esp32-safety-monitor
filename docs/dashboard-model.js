@@ -1,79 +1,106 @@
-const measured = (value, min, max) =>
-  typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : null;
-const boolean = value => typeof value === 'boolean' ? value : null;
-const modes = ['auto', 'on', 'off'];
-export const modeKeys = ['alarmLedMode', 'statusLedMode', 'buzzerMode'];
-const mode = value => modes.includes(value) ? value : null;
+const soDoHopLe = (giaTri, nhoNhat, lonNhat) =>
+  typeof giaTri === 'number' && Number.isFinite(giaTri) && giaTri >= nhoNhat && giaTri <= lonNhat ? giaTri : null;
+const giaTriBoolean = giaTri => typeof giaTri === 'boolean' ? giaTri : null;
+const giaTriCheDo = ['auto', 'on', 'off'];
+export const cacCheDo = ['buzzerMode'];
+const cheDoHopLe = giaTri => giaTriCheDo.includes(giaTri) ? giaTri : null;
+const lyDoQuat = ['gas', 'purge', 'manual', 'blocked', 'off'];
+const lyDoKhoiDong = ['power-on', 'brownout', 'panic', 'watchdog', 'software', 'external', 'other'];
+// Firmware logicVersion 3: lọc nhiễu, tắt tiếng chỉ tắt còi, báo lửa dừng quạt tay.
+export const LOGIC_MOI = 3;
+export const laLogicMoi = duLieu => duLieu?.logicVersion >= LOGIC_MOI;
+const cacLenhDen = {
+  auto: { alarmLedMode: 'auto', statusLedMode: 'auto' },
+  red: { alarmLedMode: 'on', statusLedMode: 'off' },
+  green: { alarmLedMode: 'off', statusLedMode: 'on' },
+  off: { alarmLedMode: 'off', statusLedMode: 'off' }
+};
+export const lenhDen = luaChon => cacLenhDen[luaChon] ? { ...cacLenhDen[luaChon] } : null;
+export function luaChonMauDen(duLieu) {
+  const denDo = duLieu?.alarmLedMode;
+  const denXanh = duLieu?.statusLedMode;
+  if (denDo === 'on') return 'red';
+  if (denXanh === 'on') return 'green';
+  if (denDo === 'off' && denXanh === 'off') return 'off';
+  if (denDo === 'auto' && denXanh === 'auto') return 'auto';
+  return null;
+}
 
-export function normalizeTelemetry(value = {}) {
-  const data = value && typeof value === 'object' ? value : {};
+export function chuanHoaDuLieu(giaTri = {}) {
+  const duLieu = giaTri && typeof giaTri === 'object' ? giaTri : {};
   return {
-    flameDetected: boolean(data.flameDetected), gasAlarm: boolean(data.gasAlarm), fanOn: boolean(data.fanOn),
-    alarmLedOn: boolean(data.alarmLedOn), statusLedOn: boolean(data.statusLedOn), buzzerOn: boolean(data.buzzerOn),
-    alarmLedMode: mode(data.alarmLedMode), statusLedMode: mode(data.statusLedMode), buzzerMode: mode(data.buzzerMode),
-    fanSpeedSupported: boolean(data.fanSpeedSupported), fanSpeedPct: measured(data.fanSpeedPct, 0, 100),
-    controlsVersion: data.controlsVersion === 2 ? 2 : null,
-    muteUntil: measured(data.muteUntil, 0, Number.MAX_SAFE_INTEGER),
-    appliedCommandId: typeof data.appliedCommandId === 'string' ? data.appliedCommandId : null,
-    gasRaw: measured(data.gasRaw, 0, 4095), temperatureC: measured(data.temperatureC, -40, 80),
-    humidityPct: measured(data.humidityPct, 0, 100), updatedAt: measured(data.updatedAt, 1, Number.MAX_SAFE_INTEGER)
+    flameDetected: giaTriBoolean(duLieu.flameDetected), gasAlarm: giaTriBoolean(duLieu.gasAlarm), fanOn: giaTriBoolean(duLieu.fanOn),
+    legacyPwmActive: duLieu.fanSpeedSupported === true,
+    alarmLedOn: giaTriBoolean(duLieu.alarmLedOn), statusLedOn: giaTriBoolean(duLieu.statusLedOn), buzzerOn: giaTriBoolean(duLieu.buzzerOn),
+    alarmLedMode: cheDoHopLe(duLieu.alarmLedMode), statusLedMode: cheDoHopLe(duLieu.statusLedMode), buzzerMode: cheDoHopLe(duLieu.buzzerMode),
+    controlsVersion: duLieu.controlsVersion === 2 ? 2 : null,
+    muteUntil: soDoHopLe(duLieu.muteUntil, 0, Number.MAX_SAFE_INTEGER),
+    appliedCommandId: typeof duLieu.appliedCommandId === 'string' ? duLieu.appliedCommandId : null,
+    logicVersion: soDoHopLe(duLieu.logicVersion, 1, 1000),
+    fanReason: lyDoQuat.includes(duLieu.fanReason) ? duLieu.fanReason : null,
+    gasWarmup: duLieu.gasWarmup === true, flameNoise: duLieu.flameNoise === true,
+    resetReason: lyDoKhoiDong.includes(duLieu.resetReason) ? duLieu.resetReason : null,
+    temperatureC: soDoHopLe(duLieu.temperatureC, -40, 80),
+    humidityPct: soDoHopLe(duLieu.humidityPct, 0, 100), updatedAt: soDoHopLe(duLieu.updatedAt, 1, Number.MAX_SAFE_INTEGER)
   };
 }
 
-export function gasPercent(raw) {
-  if (typeof raw !== 'number' || !Number.isFinite(raw)) return null;
-  return Math.round(Math.max(0, Math.min(4095, raw)) * 100 / 4095);
+export function duLieuCu(thoiDiemCapNhat, hienTai = Date.now()) {
+  return typeof thoiDiemCapNhat !== 'number' || !Number.isFinite(thoiDiemCapNhat) || thoiDiemCapNhat <= 0 ||
+    hienTai - thoiDiemCapNhat > 15_000 || thoiDiemCapNhat - hienTai > 5_000;
 }
-export function isStale(updatedAt, now = Date.now()) {
-  return typeof updatedAt !== 'number' || !Number.isFinite(updatedAt) || updatedAt <= 0 ||
-    now - updatedAt > 15_000 || updatedAt - now > 5_000;
+export const coCanhBao = duLieu => duLieu?.flameDetected === true || duLieu?.gasAlarm === true;
+export const dangTamTat = (duLieu, hienTai = Date.now()) => duLieu?.muteUntil > hienTai;
+// Firmware cũ: tạm tắt dừng mọi đầu ra. Firmware mới: chỉ tắt tiếng còi.
+export const tamTatTatCa = (duLieu, hienTai = Date.now()) => dangTamTat(duLieu, hienTai) && !laLogicMoi(duLieu);
+export function coTheDatQuat(duLieu, hienTai = Date.now()) {
+  return !duLieuCu(duLieu?.updatedAt, hienTai) && !tamTatTatCa(duLieu, hienTai) &&
+    duLieu?.gasAlarm === false && duLieu?.fanOn != null && duLieu?.legacyPwmActive !== true &&
+    !(laLogicMoi(duLieu) && duLieu?.flameDetected === true);
 }
-export const hasAlarm = telemetry => telemetry?.flameDetected === true || telemetry?.gasAlarm === true;
-export const isMuted = (telemetry, now = Date.now()) => telemetry?.muteUntil > now;
-export function canSetFan(telemetry, now = Date.now()) {
-  return !isStale(telemetry?.updatedAt, now) && !isMuted(telemetry, now) &&
-    telemetry?.gasAlarm === false && telemetry?.fanOn != null;
-}
-export function validCommand(key, value) {
-  if (modeKeys.includes(key)) return modes.includes(value);
-  if (key === 'fanOn') return typeof value === 'boolean';
-  if (key === 'fanSpeedPct') return Number.isInteger(value) && value >= 0 && value <= 100;
+export function lenhHopLe(khoa, giaTri) {
+  if (khoa === 'ledMode') return Object.hasOwn(cacLenhDen, giaTri);
+  if (cacCheDo.includes(khoa)) return giaTriCheDo.includes(giaTri);
+  if (khoa === 'fanOn') return typeof giaTri === 'boolean';
   return false;
 }
-export function canControl(telemetry, key, now = Date.now()) {
-  if (!['fanOn', 'fanSpeedPct', ...modeKeys].includes(key) || isStale(telemetry?.updatedAt, now) || isMuted(telemetry, now)) return false;
-  if (key === 'fanOn') return canSetFan(telemetry, now);
-  if (telemetry.controlsVersion !== 2) return false;
-  if (key === 'fanSpeedPct') return canSetFan(telemetry, now) && telemetry.fanSpeedSupported === true;
-  if (key === 'alarmLedMode') return !hasAlarm(telemetry);
-  if (key === 'statusLedMode') return telemetry.gasAlarm === false;
-  return telemetry.flameDetected === false && telemetry.gasAlarm === false;
+export function coTheDieuKhien(duLieu, khoa, hienTai = Date.now()) {
+  if (!['fanOn', 'ledMode', ...cacCheDo].includes(khoa) || duLieuCu(duLieu?.updatedAt, hienTai) ||
+    tamTatTatCa(duLieu, hienTai) || (khoa === 'buzzerMode' && dangTamTat(duLieu, hienTai))) return false;
+  if (khoa === 'fanOn') return coTheDatQuat(duLieu, hienTai);
+  if (duLieu.controlsVersion !== 2) return false;
+  if (khoa === 'ledMode') return !coCanhBao(duLieu);
+  return duLieu.flameDetected === false && duLieu.gasAlarm === false;
 }
-export function canMute(telemetry, now = Date.now()) {
-  return telemetry?.controlsVersion === 2 && !isStale(telemetry.updatedAt, now) &&
-    hasAlarm(telemetry) && !isMuted(telemetry, now);
+export function coTheTamTat(duLieu, hienTai = Date.now()) {
+  return duLieu?.controlsVersion === 2 && !duLieuCu(duLieu.updatedAt, hienTai) &&
+    coCanhBao(duLieu) && !dangTamTat(duLieu, hienTai);
 }
-export function commandProgress(pending, telemetry, now = Date.now()) {
-  if (!pending) return 'idle';
-  if (telemetry?.appliedCommandId === pending.id) return 'applied';
-  return now - pending.sentAt >= 20_000 ? 'timeout' : 'waiting';
+export function tienDoLenh(lenhDangCho, duLieu, hienTai = Date.now()) {
+  if (!lenhDangCho) return 'idle';
+  if (duLieu?.appliedCommandId === lenhDangCho.id) return 'applied';
+  return hienTai - lenhDangCho.sentAt >= 20_000 ? 'timeout' : 'waiting';
 }
-export function isLocalDemo(url) {
-  return ['localhost', '127.0.0.1'].includes(url.hostname) && url.searchParams.get('demo') === '1';
+export function laMoPhongNoiBo(duongDan) {
+  return ['localhost', '127.0.0.1'].includes(duongDan.hostname) && duongDan.searchParams.get('demo') === '1';
 }
-export function createDemoTelemetry(state = {}, now = Date.now()) {
-  const { manualFan = false, gasAlarm = false, flameDetected = false, fanSpeedPct = 100,
+// Mô phỏng giống SafetyLogic.h: gas luôn bật quạt, lửa dừng quạt tay, tắt tiếng chỉ tắt còi.
+export function taoDuLieuMoPhong(state = {}, now = Date.now()) {
+  const { manualFan = false, gasAlarm = false, flameDetected = false,
     alarmLedMode = 'auto', statusLedMode = 'auto', buzzerMode = 'auto', muteUntil = 0 } = state;
   const muted = muteUntil > now;
   const alarm = gasAlarm || flameDetected;
-  const output = (setting, automatic) => !muted && (automatic || setting === 'on');
-  const fanOn = !muted && (gasAlarm || (manualFan && fanSpeedPct > 0));
-  return normalizeTelemetry({
-    flameDetected, gasAlarm, fanOn, alarmLedMode, statusLedMode, buzzerMode, muteUntil,
-    alarmLedOn: output(alarmLedMode, alarm), statusLedOn: output(statusLedMode, gasAlarm),
-    buzzerOn: output(buzzerMode, alarm),
-    controlsVersion: 2, fanSpeedSupported: true, fanSpeedPct: gasAlarm ? 100 : fanSpeedPct,
+  const redOn = alarm || alarmLedMode === 'on';
+  const greenOn = !redOn && statusLedMode !== 'off';
+  const buzzerOn = !muted && (alarm || buzzerMode === 'on');
+  const fanOn = gasAlarm || (!flameDetected && manualFan);
+  const fanReason = gasAlarm ? 'gas' : fanOn ? 'manual' : manualFan && flameDetected ? 'blocked' : 'off';
+  return chuanHoaDuLieu({
+    flameDetected, gasAlarm, fanOn, fanReason,
+    alarmLedMode, statusLedMode, buzzerMode, muteUntil: muted ? muteUntil : 0,
+    alarmLedOn: redOn, statusLedOn: greenOn, buzzerOn,
+    controlsVersion: 2, logicVersion: LOGIC_MOI, resetReason: 'power-on',
     appliedCommandId: state.appliedCommandId ?? '',
-    gasRaw: gasAlarm ? 3072 : 1430, temperatureC: 28.3, humidityPct: 64.2, updatedAt: now
+    temperatureC: 28.3, humidityPct: 64.2, updatedAt: now
   });
 }
