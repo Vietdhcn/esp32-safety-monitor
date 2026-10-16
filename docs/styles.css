@@ -274,8 +274,8 @@ form input[type="email"]:focus, form input[type="password"]:focus { outline: non
   .hero { flex-direction: column; align-items: flex-start; padding: 20px; }
   .hero-status { align-items: flex-start; width: 100%; }
   .hero-status-top { width: 100%; justify-content: flex-start; }
-  .notice-details { position: static; width: 100%; }
-  .notice-content { position: static; width: 100%; max-height: none; margin-top: 8px; box-shadow: none; }
+  .notice-details { position: relative; width: 100%; }
+  .notice-content { left: 0; right: auto; width: 100%; }
   .connection { text-align: left; }
   .connection-dot { order: 0; }
   .login { grid-template-columns: 1fr; padding: 20px; }
@@ -289,8 +289,14 @@ form input[type="email"]:focus, form input[type="password"]:focus { outline: non
 }
 @media (max-width: 380px) {
   .metric-grid { grid-template-columns: 1fr; }
-  .metric-card p { min-block-size: 0; }
 }
 @media (max-width: 480px) {
+  .metric-card p { min-block-size: 4.35em; }
   .command-status { min-block-size: 60px; }
+}
+@media (max-width: 320px) {
+  .fan-mode-line { min-block-size: 4.35em; }
+}
+@media (max-width: 260px) {
+  .command-status { min-block-size: 80px; }
 }
