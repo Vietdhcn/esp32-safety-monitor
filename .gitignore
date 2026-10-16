@@ -1,4 +1,7 @@
 firmware/AnToanESP32/secrets.h
-CodeESP32/
+firmware/AnToanESP32/build/
 .deps/
 node_modules/
+.playwright-cli/
+*.zip
+tools/*.log

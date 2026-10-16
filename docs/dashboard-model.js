@@ -55,8 +55,8 @@ export const dangTamTat = (duLieu, hienTai = Date.now()) => duLieu?.muteUntil > 
 export const tamTatTatCa = (duLieu, hienTai = Date.now()) => dangTamTat(duLieu, hienTai) && !laLogicMoi(duLieu);
 export function coTheDatQuat(duLieu, hienTai = Date.now()) {
   return !duLieuCu(duLieu?.updatedAt, hienTai) && !tamTatTatCa(duLieu, hienTai) &&
-    duLieu?.gasAlarm === false && duLieu?.fanOn != null && duLieu?.legacyPwmActive !== true &&
-    !(laLogicMoi(duLieu) && duLieu?.flameDetected === true);
+    duLieu?.gasAlarm === false && duLieu?.flameDetected === false &&
+    duLieu?.fanOn != null && duLieu?.legacyPwmActive !== true;
 }
 export function lenhHopLe(khoa, giaTri) {
   if (khoa === 'ledMode') return Object.hasOwn(cacLenhDen, giaTri);
@@ -84,7 +84,7 @@ export function tienDoLenh(lenhDangCho, duLieu, hienTai = Date.now()) {
 export function laMoPhongNoiBo(duongDan) {
   return ['localhost', '127.0.0.1'].includes(duongDan.hostname) && duongDan.searchParams.get('demo') === '1';
 }
-// Mô phỏng giống SafetyLogic.h: gas luôn bật quạt, lửa dừng quạt tay, tắt tiếng chỉ tắt còi.
+// Mô phỏng giống SafetyLogic.h: lửa dừng quạt kể cả khi có gas, tắt tiếng chỉ tắt còi.
 export function taoDuLieuMoPhong(state = {}, now = Date.now()) {
   const { manualFan = false, gasAlarm = false, flameDetected = false,
     alarmLedMode = 'auto', statusLedMode = 'auto', buzzerMode = 'auto', muteUntil = 0 } = state;
@@ -93,13 +93,13 @@ export function taoDuLieuMoPhong(state = {}, now = Date.now()) {
   const redOn = alarm || alarmLedMode === 'on';
   const greenOn = !redOn && statusLedMode !== 'off';
   const buzzerOn = !muted && (alarm || buzzerMode === 'on');
-  const fanOn = gasAlarm || (!flameDetected && manualFan);
-  const fanReason = gasAlarm ? 'gas' : fanOn ? 'manual' : manualFan && flameDetected ? 'blocked' : 'off';
+  const fanOn = !flameDetected && (gasAlarm || manualFan);
+  const fanReason = flameDetected ? 'blocked' : gasAlarm ? 'gas' : fanOn ? 'manual' : 'off';
   return chuanHoaDuLieu({
     flameDetected, gasAlarm, fanOn, fanReason,
     alarmLedMode, statusLedMode, buzzerMode, muteUntil: muted ? muteUntil : 0,
     alarmLedOn: redOn, statusLedOn: greenOn, buzzerOn,
-    controlsVersion: 2, logicVersion: LOGIC_MOI, resetReason: 'power-on',
+    controlsVersion: 2, logicVersion: 4, resetReason: 'power-on',
     appliedCommandId: state.appliedCommandId ?? '',
     temperatureC: 28.3, humidityPct: 64.2, updatedAt: now
   });

@@ -47,11 +47,11 @@ test('telemetry older than 15 seconds is stale', () => {
   assert.equal(duLieuCu(null, 16_000), true);
 });
 
-test('fan command is blocked on stale data or gas alarm, but not fire alone', () => {
+test('fan command is blocked on stale data, gas alarm, or flame alarm', () => {
   const safe = { flameDetected: false, gasAlarm: false, fanOn: false, updatedAt: 10_000 };
   assert.equal(coTheDatQuat(safe, 20_000), true);
   assert.equal(coTheDatQuat({ ...safe, gasAlarm: true }, 20_000), false);
-  assert.equal(coTheDatQuat({ ...safe, flameDetected: true }, 20_000), true);
+  assert.equal(coTheDatQuat({ ...safe, flameDetected: true }, 20_000), false);
   assert.equal(coTheDatQuat(safe, 30_000), false);
 });
 

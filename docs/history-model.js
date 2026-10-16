@@ -5,28 +5,11 @@ export function cacThayDoiLichSu(duLieuTruoc, duLieuHienTai) {
   if (typeof at !== 'number' || !Number.isFinite(at) || at <= 0) return [];
   if (!duLieuTruoc) return [];
   const cacMuc = [];
-  let canhBaoVuaDoi = false;
-  let gasVuaDoi = false;
   for (const [khoa, nhan] of [['flameDetected', 'Lửa'], ['gasAlarm', 'Khí gas']]) {
     if (typeof duLieuHienTai[khoa] === 'boolean' && duLieuHienTai[khoa] !== duLieuTruoc[khoa]) {
-      canhBaoVuaDoi = true;
-      if (khoa === 'gasAlarm') gasVuaDoi = true;
       cacMuc.push({ at, source: 'system', kind: duLieuHienTai[khoa] ? 'danger' : 'safe',
         title: duLieuHienTai[khoa] ? `Phát hiện ${nhan.toLowerCase()}` : `${nhan} đã an toàn`,
         detail: duLieuHienTai[khoa] ? 'Cảm biến phát tín hiệu cảnh báo.' : 'Cảm biến đã trở về trạng thái bình thường.' });
-    }
-  }
-  const maLenhMoi = typeof duLieuHienTai.appliedCommandId === 'string' && duLieuHienTai.appliedCommandId.length > 0 &&
-    duLieuHienTai.appliedCommandId !== duLieuTruoc.appliedCommandId;
-  for (const [khoa, nhan] of [['fanOn', 'Quạt'], ['buzzerOn', 'Còi'],
-    ['alarmLedOn', 'LED đỏ'], ['statusLedOn', 'LED xanh']]) {
-    const camBienGayRa = khoa === 'fanOn' ? gasVuaDoi : canhBaoVuaDoi;
-    if ((!maLenhMoi || camBienGayRa) &&
-        typeof duLieuHienTai[khoa] === 'boolean' && typeof duLieuTruoc[khoa] === 'boolean' &&
-        duLieuHienTai[khoa] !== duLieuTruoc[khoa]) {
-      cacMuc.push({ at, source: 'system', kind: 'device',
-        title: `${nhan} đã ${duLieuHienTai[khoa] ? 'bật' : 'tắt'}`,
-        detail: 'Đầu ra của thiết bị tự thay đổi.' });
     }
   }
   return cacMuc;
@@ -62,16 +45,8 @@ export function locLichSu(items, source = 'all') {
 }
 
 export function lamSachLichSuHeThongCu(items) {
-  const gasEvents = new Set(items.filter(item => item.source !== 'user' &&
-    ['Phát hiện khí gas', 'Khí gas đã an toàn'].includes(item.title))
-    .map(item => `${item.at}:${item.title}`));
-  return items.filter(item => {
-    if (item.source === 'user') return true;
-    if (item.title === 'Quạt đã bật') return gasEvents.has(`${item.at}:Phát hiện khí gas`);
-    if (item.title === 'Quạt đã tắt') return gasEvents.has(`${item.at}:Khí gas đã an toàn`);
-    return item.title !== 'Bắt đầu theo dõi' &&
-      !/^(?:LED hai màu:|Còi:|Tốc độ quạt:)/.test(item.title);
-  });
+  const canhBaoAnToan = new Set(['Phát hiện lửa', 'Phát hiện khí gas', 'Lửa đã an toàn', 'Khí gas đã an toàn']);
+  return items.filter(item => item.source === 'user' || canhBaoAnToan.has(item.title));
 }
 
 export function xoaLichSuTheoNguon(items, source) {

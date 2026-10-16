@@ -8,6 +8,5 @@
 #define DEVICE_EMAIL "device@example.com"
 #define DEVICE_PASSWORD "YOUR_DEVICE_ACCOUNT_PASSWORD"
 
-// Enable these only after connecting the DHT11 and MQ-2 AO wires.
-#define DHT11_CONNECTED false
-#define MQ2_AO_CONNECTED false
+// DHT11 DATA on GPIO27 (D27); set false only when the sensor is absent.
+#define DHT11_CONNECTED true

@@ -17,12 +17,11 @@ test('history records first reading and meaningful changes, not repeated telemet
   assert.deepEqual(cacThayDoiLichSu(first, reading({ updatedAt: first.updatedAt + 5000 })), []);
   const changes = cacThayDoiLichSu(first, reading({ gasAlarm: true, fanOn: true, buzzerOn: true,
     alarmLedOn: true, statusLedOn: false, updatedAt: first.updatedAt + 5000 }));
-  assert.deepEqual(changes.map(item => item.title),
-    ['Phát hiện khí gas', 'Quạt đã bật', 'Còi đã bật', 'LED đỏ đã bật', 'LED xanh đã tắt']);
+  assert.deepEqual(changes.map(item => item.title), ['Phát hiện khí gas']);
   assert.ok(changes.every(item => item.source === 'system' && item.at === first.updatedAt + 5000));
 });
 
-test('manual output changes stay in user history, while later automatic changes stay in system history', () => {
+test('system history records only safety alarm transitions, not automatic or manual outputs', () => {
   const first = reading();
   const manual = reading({ fanOn: true, buzzerOn: true, alarmLedOn: true, statusLedOn: false,
     alarmLedMode: 'on', statusLedMode: 'off', buzzerMode: 'on', appliedCommandId: 'pressed-1' });
@@ -34,8 +33,9 @@ test('manual output changes stay in user history, while later automatic changes 
   assert.deepEqual(cacThayDoiLichSu(manual, alarm).map(item => item.title), ['Phát hiện khí gas']);
   const autoResume = reading({ ...alarm, fanOn: false, buzzerOn: false, alarmLedOn: false,
     updatedAt: first.updatedAt + 10_000 });
-  assert.deepEqual(cacThayDoiLichSu(alarm, autoResume).map(item => item.title),
-    ['Quạt đã tắt', 'Còi đã tắt', 'LED đỏ đã tắt']);
+  assert.deepEqual(cacThayDoiLichSu(alarm, autoResume), []);
+  const recovered = reading({ ...autoResume, gasAlarm: false, updatedAt: first.updatedAt + 15_000 });
+  assert.deepEqual(cacThayDoiLichSu(autoResume, recovered).map(item => item.title), ['Khí gas đã an toàn']);
 });
 
 test('history separates device events from buttons pressed by this user', () => {
@@ -64,7 +64,7 @@ test('history deletion removes only the chosen source, including legacy system e
   assert.deepEqual(historyModel.xoaLichSuTheoNguon(entries, 'all'), []);
 });
 
-test('old system history keeps gas-triggered fan events but drops manual or ambiguous output logs', () => {
+test('stored history keeps only safety alarm transitions and user actions', () => {
   const at = 1_700_000_000_000;
   const old = [
     { at, source: 'system', title: 'Phát hiện khí gas' },
@@ -74,10 +74,13 @@ test('old system history keeps gas-triggered fan events but drops manual or ambi
     { at: at + 3000, source: 'system', title: 'LED hai màu: Đỏ' },
     { at: at + 4000, source: 'system', title: 'Tốc độ quạt: 60%' },
     { at: at + 5000, source: 'system', title: 'Bắt đầu theo dõi' },
-    { at: at + 6000, source: 'user', title: 'Bật quạt' }
+    { at: at + 6000, source: 'user', title: 'Bật quạt' },
+    { at: at + 7000, source: 'system', title: 'Phát hiện lửa' },
+    { at: at + 8000, source: 'system', title: 'Lửa đã an toàn' },
+    { at: at + 9000, source: 'system', title: 'Khí gas đã an toàn' }
   ];
   assert.deepEqual(historyModel.lamSachLichSuHeThongCu(old).map(item => item.title),
-    ['Phát hiện khí gas', 'Quạt đã bật', 'Bật quạt']);
+    ['Phát hiện khí gas', 'Bật quạt', 'Phát hiện lửa', 'Lửa đã an toàn', 'Khí gas đã an toàn']);
 });
 
 test('manual bicolor LED mode change does not create a system entry', () => {

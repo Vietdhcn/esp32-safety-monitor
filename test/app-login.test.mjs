@@ -18,9 +18,11 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   const nodes = new Map();
   const createNode = () => ({ hidden: false, style: {}, listeners: {}, value: '', checked: false, attributes: {}, children: [],
     classList: { toggle() {} }, closest() { return this; }, setAttribute(key, value) { this.attributes[key] = value; },
+    contains(target) { return this === target; },
     addEventListener(event, callback) { this.listeners[event] = callback; },
     replaceChildren(...items) { this.children = items; }, append(...items) { this.children.push(...items); } });
-  globalThis.document = { createElement: createNode, getElementById(id) {
+  globalThis.document = { listeners: {}, addEventListener(event, callback) { this.listeners[event] = callback; },
+    createElement: createNode, getElementById(id) {
     if (!nodes.has(id)) nodes.set(id, createNode());
     return nodes.get(id);
   } };
@@ -74,15 +76,16 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(nodes.get('speed-button')?.listeners.click, undefined,
     'the removed speed control must not submit PWM commands');
   const historyKey = 'safety-history:esp32s-30p-01:operator';
-  storage.set(historyKey, JSON.stringify({ items: [
+  storage.set(historyKey, JSON.stringify({ version: 2, items: [
     { at: Date.now(), source: 'system', kind: 'device', title: 'Còi: Bật', detail: 'Chế độ cũ.' },
     { at: Date.now(), source: 'system', kind: 'danger', title: 'Phát hiện khí gas', detail: 'Cảm biến.' },
+    { at: Date.now(), source: 'system', kind: 'device', title: 'Quạt đã bật', detail: 'Thiết bị.' },
     { at: Date.now(), source: 'user', kind: 'user', title: 'Bật quạt', detail: 'Đã nhấn.' }
   ] }));
   assert.doesNotThrow(() => state.authChanged({ uid: 'operator' }));
-  assert.equal(JSON.parse(storage.get(historyKey)).version, 2);
+  assert.equal(JSON.parse(storage.get(historyKey)).version, 3);
   assert.deepEqual(JSON.parse(storage.get(historyKey)).items.map(item => item.title),
-    ['Phát hiện khí gas', 'Bật quạt'], 'old manually controlled system logs are removed on load');
+    ['Phát hiện khí gas', 'Bật quạt'], 'stored device output logs are removed on load');
   assert.equal(state.path, 'devices/esp32s-30p-01/telemetry');
   assert.equal(nodes.get('dashboard').hidden, false);
   assert.equal(nodes.get('history-view').hidden, true, 'overview is the default tab');
@@ -115,6 +118,20 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   state.reading({ val: () => safe });
   assert.equal(nodes.get('temperature-value').textContent, '—', 'a failed reading must clear the old value');
   assert.equal(nodes.get('humidity-value').textContent, '—');
+  state.reading({ val: () => ({ ...safe, flameNoise: true, resetReason: 'brownout' }) });
+  assert.equal(nodes.get('notice-count').textContent, '2');
+  assert.equal(nodes.get('notice-count').hidden, false);
+  assert.match(nodes.get('noise-text').textContent, /sụt áp nguồn/);
+  assert.doesNotMatch(html, /id="noise-banner"/, 'diagnostic notices should not insert a banner above the tabs');
+  nodes.get('notice-details').open = true;
+  document.listeners.click({ target: nodes.get('tab-overview') });
+  assert.equal(nodes.get('notice-details').open, false, 'a click elsewhere closes the notice panel');
+  nodes.get('notice-details').open = true;
+  document.listeners.keydown({ key: 'Escape' });
+  assert.equal(nodes.get('notice-details').open, false, 'Escape closes the notice panel');
+  state.reading({ val: () => safe });
+  assert.equal(nodes.get('notice-count').hidden, true);
+  assert.equal(nodes.get('notice-details').open, false, 'an obsolete notice closes itself');
   state.reading({ val: () => ({ ...safe, fanSpeedSupported: true }) });
   assert.equal(nodes.get('fan-on').disabled, true, 'old PWM firmware must not accept an on/off web command');
   assert.match(nodes.get('fan-mode').textContent, /nạp firmware/);
@@ -216,6 +233,10 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(nodes.get('safe-badge').textContent, 'Cảnh báo gas');
   assert.equal(nodes.get('flame-value').textContent, 'An toàn', 'gas alone must not appear as flame');
   assert.ok(JSON.parse(storage.get(historyKey)).items.some(item => item.title === 'Phát hiện khí gas'));
+  assert.ok(JSON.parse(storage.get(historyKey)).items
+    .filter(item => item.source === 'system')
+    .every(item => ['Phát hiện lửa', 'Phát hiện khí gas', 'Lửa đã an toàn', 'Khí gas đã an toàn'].includes(item.title)),
+  'system history contains only safety alarm transitions after live telemetry and commands');
   nodes.get('clear-history-system').listeners.click();
   assert.ok(JSON.parse(storage.get(historyKey)).items.every(item => item.source === 'user'));
   assert.equal(nodes.get('clear-history-system').disabled, true);
@@ -233,4 +254,10 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   state.reading({ val: () => ({ ...safe, gasAlarm: true, updatedAt: Date.now() }) });
   await nodes.get('mute-button').listeners.click();
   assert.deepEqual(state.write.values.muteRequestedAt, { '.sv': 'timestamp' });
+  state.reading({ val: () => ({ ...safe, gasAlarm: true, logicVersion: 3, muteUntil: Date.now() + 30_000 }) });
+  assert.match(nodes.get('mute-description').textContent, /Còi đang tắt tiếng/);
+  state.reading({ val: () => ({ ...safe, gasAlarm: true, flameDetected: true, fanOn: false,
+    fanReason: 'blocked', logicVersion: 4, muteUntil: Date.now() + 30_000 }) });
+  assert.doesNotMatch(nodes.get('mute-description').textContent, /quạt vẫn chạy/);
+  assert.doesNotMatch(html, /id="suppression-banner"/, 'mute status belongs beside the mute control');
 });

@@ -1,119 +1,337 @@
 #include "secrets.h"
+#include "Controls.h"
+#include "DhtSample.h"
+#include "SafetyLogic.h"
+#include "Sensors.h"
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <DHT.h>
 #include <HTTPClient.h>
-#include <sys/time.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <esp_system.h>
+#include <esp_task_wdt.h>
+#include <sys/time.h>
 #include <time.h>
 
-// ESP32S 30P pin map retained from the original Viet.ino sketch.
-constexpr uint8_t FLAME_DO_PIN = 16;
-constexpr uint8_t MQ2_DO_PIN = 17;
-constexpr uint8_t BUZZER_PIN = 13;
-// Hardware check: D13 HIGH silences this circuit; LOW sounds the buzzer.
-constexpr uint8_t BUZZER_ACTIVE_LEVEL = LOW;
-constexpr uint8_t ALARM_LED_PIN = 22; // Red alarm LED: gas or flame.
-constexpr uint8_t GAS_LED_PIN = 23;
-constexpr uint8_t FAN_ON_PIN = 32;
-constexpr uint8_t FAN_OFF_PIN = 33;
-constexpr uint8_t DHT11_PIN = 27;   // New wire; change here if GPIO27 is occupied.
-constexpr uint8_t MQ2_AO_PIN = 34;  // New wire, through a 5 V -> 3.3 V divider.
-constexpr char DEVICE_ID[] = "esp32s-30p-01";
+// ===== Chu ky, don vi ms =====
+constexpr uint64_t MUTE_DURATION_MS = 30000ULL;
+constexpr unsigned long SENSOR_INTERVAL_MS = 20;
+constexpr unsigned long DHT_INTERVAL_MS = 2500;
+constexpr unsigned long LOG_INTERVAL_MS = 5000;
+constexpr unsigned long SEND_INTERVAL_MS = 2000;
+constexpr unsigned long COMMAND_INTERVAL_MS = 500;
+constexpr int FIRMWARE_LOGIC_VERSION = 4;  // Uu tien bao lua hon quạt va thong gio them 3 giay.
 
-DHT dht(DHT11_PIN, DHT11);
+Sensors sensors;
+Controls controls;
 
-constexpr uint8_t FLAME_FLAG = 1;
-constexpr uint8_t GAS_FLAG = 2;
-volatile uint8_t sensorFlags = 0;
-volatile uint32_t telemetryRevision = 0;
-TaskHandle_t cloudTaskHandle = nullptr;
-volatile int state_pan = 0;
-volatile int gasRaw = -1;
-volatile float temperatureC = NAN;
-volatile float humidityPct = NAN;
-bool fanPwmReady = false;
-
-String firebaseIdToken;
-unsigned long authenticatedAt = 0;
-String lastCommandId;
-bool commandsInitialized = false;
-
-constexpr int MODE_AUTO = 0;
-constexpr int MODE_ON = 1;
-constexpr int MODE_OFF = 2;
-struct ControlCommands {
+struct ControlCommand {
   bool fanOn = false;
-  int fanSpeedPct = 100;
-  int alarmLedMode = MODE_AUTO;
-  int statusLedMode = MODE_AUTO;
+  int redLedMode = MODE_AUTO;
+  int greenLedMode = MODE_AUTO;
   int buzzerMode = MODE_AUTO;
   uint64_t muteRequestedAt = 0;
   char commandId[65] = "";
 };
-struct AppliedOutputs {
+
+// Trang thai thiet bi gui len Firebase.
+struct DeviceState {
+  bool flame = false;
+  bool gas = false;
   bool fanOn = false;
-  int fanSpeedPct = 0;
-  bool alarmLedOn = false;
-  bool statusLedOn = true;
+  bool redLedOn = false;
+  bool greenLedOn = false;
   bool buzzerOn = false;
-  int alarmLedMode = MODE_AUTO;
-  int statusLedMode = MODE_AUTO;
+  int redLedMode = MODE_AUTO;
+  int greenLedMode = MODE_AUTO;
   int buzzerMode = MODE_AUTO;
   uint64_t muteUntil = 0;
+  const char* fanReason = "off";
+  bool gasWarmup = true;
+  bool flameNoise = false;
+  uint32_t flameGlitches = 0;
   char commandId[65] = "";
 };
-ControlCommands controls;
-AppliedOutputs outputs;
-portMUX_TYPE controlMux = portMUX_INITIALIZER_UNLOCKED;
 
-uint64_t epochMillis() {
+// Chi cac thay doi nay moi can gui telemetry ngay; bo dem xung nhieu gui theo chu ky.
+bool sameTelemetry(const DeviceState& a, const DeviceState& b) {
+  return a.flame == b.flame && a.gas == b.gas && a.fanOn == b.fanOn && a.redLedOn == b.redLedOn &&
+         a.greenLedOn == b.greenLedOn && a.buzzerOn == b.buzzerOn && a.redLedMode == b.redLedMode &&
+         a.greenLedMode == b.greenLedMode && a.buzzerMode == b.buzzerMode && a.muteUntil == b.muteUntil &&
+         strcmp(a.fanReason, b.fanReason) == 0 && a.gasWarmup == b.gasWarmup &&
+         a.flameNoise == b.flameNoise && strcmp(a.commandId, b.commandId) == 0;
+}
+
+// Du lieu dung chung giua cac task, luon doc/ghi trong stateLock.
+portMUX_TYPE stateLock = portMUX_INITIALIZER_UNLOCKED;
+ControlCommand controlCommand;
+DeviceState deviceState;
+uint32_t dataVersion = 0;
+float temperatureC = NAN;
+float humidityPercent = NAN;
+TaskHandle_t firebaseTaskHandle = nullptr;
+const char* resetReason = "other";
+
+void notifyFirebaseTask() {
+  if (firebaseTaskHandle) xTaskNotifyGive(firebaseTaskHandle);
+}
+
+const char* resetReasonName(esp_reset_reason_t reason) {
+  switch (reason) {
+    case ESP_RST_POWERON: return "power-on";
+    case ESP_RST_BROWNOUT: return "brownout";   // Sut ap nguon, thuong gap khi cap tu cong USB may tinh.
+    case ESP_RST_PANIC: return "panic";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT: return "watchdog";
+    case ESP_RST_SW: return "software";
+    case ESP_RST_EXT: return "external";
+    default: return "other";
+  }
+}
+
+// ===== Task an toan: noi cam bien, logic va dau ra =====
+
+// Thoi gian Unix (ms) cho lenh tat tieng coi.
+uint64_t getEpochMs() {
   timeval current;
   gettimeofday(&current, nullptr);
   return static_cast<uint64_t>(current.tv_sec) * 1000ULL + current.tv_usec / 1000;
 }
-int parseOutputMode(const char* value, int fallback) {
+
+void updateDhtTelemetry() {
+  if (!DHT11_CONNECTED) return;
+  const DhtMeasurement sample = sensors.readDht();
+  bool changed;
+  portENTER_CRITICAL(&stateLock);
+  changed = dhtSampleChanged(!isnan(temperatureC), temperatureC, humidityPercent,
+                             sample.valid, sample.temperatureC, sample.humidityPercent);
+  temperatureC = sample.temperatureC;
+  humidityPercent = sample.humidityPercent;
+  if (changed) ++dataVersion;
+  portEXIT_CRITICAL(&stateLock);
+  if (changed) notifyFirebaseTask();
+}
+
+// Task an toan: chay tren core 1, tach khoi Wi-Fi/TLS o core 0, co watchdog.
+void sensorTask(void*) {
+  const esp_err_t watchdog = esp_task_wdt_add(nullptr);
+  Serial.printf("Sensor task on core %d, watchdog=%s\n", xPortGetCoreID(), watchdog == ESP_OK ? "on" : "off");
+
+  DebouncedInput flameInput;
+  DebouncedInput gasInput;
+  bool fanWasOn = false;
+  bool fanEverChanged = false;
+  bool fanEverStopped = false;
+  uint32_t fanChangedAt = 0;
+  uint32_t fanStoppedAt = 0;
+  PurgeTimer purge;
+  bool fanBlocked = false;
+  char blockedCommandId[65] = "";
+  bool flameStartedWithFan = false;
+  bool noiseActive = false;
+  uint32_t noiseUntil = 0;
+  uint32_t seenGlitches = 0;
+  unsigned long lastDhtReadAt = 0;
+  unsigned long lastLogAt = 0;
+
+  for (;;) {
+    if (watchdog == ESP_OK) esp_task_wdt_reset();
+    const uint32_t nowMs = millis();
+
+    // 1. Doc tin hieu tho va lenh moi nhat.
+    const DigitalSensors raw = sensors.readDigital();
+    const bool rawFlame = raw.flame;
+    const bool rawGas = raw.gas;
+    ControlCommand command;
+    portENTER_CRITICAL(&stateLock);
+    command = controlCommand;
+    portEXIT_CRITICAL(&stateLock);
+
+    // 2. Loc nhieu. Khi quat dang chay hoac vua bat/tat, nguon 5V dao dong nen can xac nhan lau hon.
+    const bool fanNoiseWindow = fanWasOn || (fanEverChanged && nowMs - fanChangedAt < FAN_SWITCH_GUARD_MS);
+    const bool flameChanged = flameInput.update(rawFlame, nowMs,
+        fanNoiseWindow ? FLAME_CONFIRM_FAN_MS : FLAME_CONFIRM_MS, FLAME_RELEASE_MS);
+    const bool gasChanged = gasInput.update(rawGas, nowMs, GAS_CONFIRM_MS, GAS_RELEASE_MS);
+    const bool flame = flameInput.state;
+    const bool gas = gasInput.state;
+
+    // 3. Thong gio them sau khi het gas; dung ngay neu co lua.
+    purge.update(gasChanged && !gas, gas, flame, nowMs);
+
+    // 4. Quat tay bi dung khi bao lua, cho den khi nguoi dung gui lenh moi.
+    if (fanBlocked && strcmp(command.commandId, blockedCommandId) != 0) fanBlocked = false;
+    if (flame && command.fanOn && !fanBlocked) {
+      fanBlocked = true;
+      strlcpy(blockedCommandId, command.commandId, sizeof(blockedCommandId));
+    }
+
+    // 5. Nhan biet bao lua gia do nhieu nguon khi quat chay (khong tat canh bao, chi goi y tren web).
+    if (flameChanged && flame) flameStartedWithFan = fanNoiseWindow;
+    if (flameChanged && !flame && flameStartedWithFan && fanEverStopped &&
+        nowMs - fanStoppedAt <= NOISE_AFTER_STOP_MS + FLAME_RELEASE_MS) {
+      noiseActive = true;
+      noiseUntil = nowMs + NOISE_HINT_MS;
+      Serial.println("Flame alarm cleared right after the fan stopped: likely 5V supply noise");
+    }
+    if (flameInput.glitches != seenGlitches) {
+      seenGlitches = flameInput.glitches;
+      if (fanNoiseWindow) {
+        noiseActive = true;
+        noiseUntil = nowMs + NOISE_HINT_MS;
+      }
+    }
+    if (noiseActive && !beforeDeadline(nowMs, noiseUntil)) noiseActive = false;
+
+    // 6. Tat tieng coi 30 giay (chi coi; den do va quat van hoat dong).
+    const uint64_t epochMs = getEpochMs();
+    const uint64_t muteUntil = command.muteRequestedAt > 0 ? command.muteRequestedAt + MUTE_DURATION_MS : 0;
+    const bool muted = epochMs > 1700000000000ULL &&
+        command.muteRequestedAt <= epochMs + 5000ULL && epochMs < muteUntil;
+
+    // 7. Quyet dinh va ghi dau ra.
+    SafetyInputs inputs;
+    inputs.flame = flame;
+    inputs.gas = gas;
+    inputs.buzzerMuted = muted;
+    inputs.manualFan = command.fanOn;
+    inputs.fanBlockedByFlame = fanBlocked;
+    inputs.purging = purge.active;
+    inputs.redLedMode = command.redLedMode;
+    inputs.greenLedMode = command.greenLedMode;
+    inputs.buzzerMode = command.buzzerMode;
+    const SafetyOutputs outputs = decideOutputs(inputs);
+    controls.apply(outputs);
+
+    if (outputs.fan != fanWasOn) {
+      fanEverChanged = true;
+      fanChangedAt = nowMs;
+      if (!outputs.fan) {
+        fanEverStopped = true;
+        fanStoppedAt = nowMs;
+      }
+      fanWasOn = outputs.fan;
+    }
+
+    // 8. Cap nhat trang thai chung cho task Firebase.
+    DeviceState next;
+    next.flame = flame;
+    next.gas = gas;
+    next.fanOn = outputs.fan;
+    next.redLedOn = outputs.redLed;
+    next.greenLedOn = outputs.greenLed;
+    next.buzzerOn = outputs.buzzer;
+    next.redLedMode = command.redLedMode;
+    next.greenLedMode = command.greenLedMode;
+    next.buzzerMode = command.buzzerMode;
+    next.muteUntil = muted ? muteUntil : 0;
+    next.fanReason = fanReason(inputs, outputs);
+    next.gasWarmup = nowMs < GAS_WARMUP_MS;
+    next.flameNoise = noiseActive;
+    next.flameGlitches = flameInput.glitches;
+    strlcpy(next.commandId, command.commandId, sizeof(next.commandId));
+
+    bool changed;
+    portENTER_CRITICAL(&stateLock);
+    changed = !sameTelemetry(deviceState, next);
+    deviceState = next;
+    if (changed) ++dataVersion;
+    portEXIT_CRITICAL(&stateLock);
+    if (changed) notifyFirebaseTask();
+
+    if (flameChanged || gasChanged) {
+      Serial.printf("Alarm changed: flame=%d gas=%d fan=%d (%s) glitches=%lu\n", flame, gas,
+                    outputs.fan, next.fanReason, static_cast<unsigned long>(flameInput.glitches));
+    }
+    if (nowMs - lastLogAt >= LOG_INTERVAL_MS) {
+      lastLogAt = nowMs;
+      Serial.printf("Monitor WiFi=%d rawFlame=%d rawGas=%d flame=%d gas=%d fan=%d buzzer=%d noise=%d heap=%u\n",
+                    static_cast<int>(WiFi.status()), rawFlame, rawGas, flame, gas, outputs.fan,
+                    outputs.buzzer, noiseActive, ESP.getFreeHeap());
+    }
+    if (DHT11_CONNECTED && nowMs - lastDhtReadAt >= DHT_INTERVAL_MS) {
+      lastDhtReadAt = nowMs;
+      updateDhtTelemetry();
+    }
+    vTaskDelay(pdMS_TO_TICKS(SENSOR_INTERVAL_MS));
+  }
+}
+
+// ===== Wi-Fi, lenh va telemetry Firebase =====
+
+constexpr char DEVICE_ID[] = "esp32s-30p-01";
+String firebaseToken;
+unsigned long lastSignInAt = 0;
+SemaphoreHandle_t commandMutex = nullptr;  // Hai task cung co the ap dung lenh.
+String lastCommandId;
+bool commandsInitialized = false;
+volatile bool commandStreamActive = false;
+char commandStreamToken[2048] = "";
+uint32_t commandStreamGeneration = 0;
+portMUX_TYPE commandStreamTokenLock = portMUX_INITIALIZER_UNLOCKED;
+
+void connectWifi() {
+  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+      Serial.printf("WiFi disconnect reason=%u\n", info.wifi_sta_disconnected.reason);
+    }
+  });
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  const int networkCount = WiFi.scanNetworks(false, true);
+  struct WifiNetwork { int32_t channel; uint8_t bssid[6]; };
+  WifiNetwork matchingNetworks[8];
+  int matchCount = 0;
+  for (int index = 0; index < networkCount && matchCount < 8; ++index) {
+    if (WiFi.SSID(index) == WIFI_SSID) {
+      matchingNetworks[matchCount].channel = WiFi.channel(index);
+      memcpy(matchingNetworks[matchCount].bssid, WiFi.BSSID(index), 6);
+      ++matchCount;
+    }
+  }
+  Serial.printf("WiFi scan count=%d targetCount=%d\n", networkCount, matchCount);
+  WiFi.scanDelete();
+  for (int index = 0; index < matchCount; ++index) {
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, matchingNetworks[index].channel, matchingNetworks[index].bssid);
+    const unsigned long startedAt = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - startedAt < 12000) {
+      delay(100);
+    }
+    const bool connected = WiFi.status() == WL_CONNECTED;
+    Serial.printf("WiFi candidate channel=%d connected=%d\n", matchingNetworks[index].channel, connected);
+    if (connected) break;
+    WiFi.disconnect(false, false);
+    delay(500);
+  }
+  if (WiFi.status() != WL_CONNECTED) WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+}
+
+int parseMode(const char* value, int defaultMode) {
   if (strcmp(value, "auto") == 0) return MODE_AUTO;
   if (strcmp(value, "on") == 0) return MODE_ON;
   if (strcmp(value, "off") == 0) return MODE_OFF;
-  return fallback;
+  return defaultMode;
 }
-const char* outputModeName(int value) {
+
+const char* modeName(int value) {
   return value == MODE_ON ? "on" : value == MODE_OFF ? "off" : "auto";
 }
-void setBuzzer(bool enabled) {
-  digitalWrite(BUZZER_PIN, enabled ? BUZZER_ACTIVE_LEVEL : !BUZZER_ACTIVE_LEVEL);
-}
 
-void onPan(int speedPct) {
-  digitalWrite(FAN_OFF_PIN, LOW);
-  if (fanPwmReady) ledcWrite(FAN_ON_PIN, speedPct * 255 / 100);
-  else digitalWrite(FAN_ON_PIN, HIGH);
-  state_pan = 1;
-}
-
-void offPan() {
-  if (fanPwmReady) ledcWrite(FAN_ON_PIN, 0);
-  else digitalWrite(FAN_ON_PIN, LOW);
-  digitalWrite(FAN_OFF_PIN, LOW);
-  state_pan = 0;
-}
-
-void readDht() {
-  if (!DHT11_CONNECTED) return;
-  const float humidity = dht.readHumidity();
-  const float temperature = dht.readTemperature();
-  if (!isnan(humidity) && humidity >= 0 && humidity <= 100) humidityPct = humidity;
-  if (!isnan(temperature) && temperature >= -40 && temperature <= 80) temperatureC = temperature;
-}
-
-// Every Firebase request uses HTTPS with certificate validation.
-int firebaseHttp(const String& url, const char* method, const String& body, String& response) {
-  WiFiClientSecure client;
-  client.useBuiltinCACertBundle();
+// HTTPS co kiem tra chung chi. Ket noi toi Realtime Database duoc giu lai (keep-alive)
+// de khong phai bat tay TLS moi 2 giay; ket noi dang nhap dung xong thi dong.
+int firebaseRequest(const String& url, const char* method, const String& body, String& response, bool keepAlive) {
+  static WiFiClientSecure authClient;
+  static WiFiClientSecure databaseClient;
+  static bool clientsReady = false;
+  if (!clientsReady) {
+    authClient.useBuiltinCACertBundle();
+    databaseClient.useBuiltinCACertBundle();
+    clientsReady = true;
+  }
+  WiFiClientSecure& client = keepAlive ? databaseClient : authClient;
   HTTPClient http;
+  http.setReuse(keepAlive);
   if (!http.begin(client, url)) return -1;
   http.setTimeout(3500);
   if (strcmp(method, "GET") != 0) http.addHeader("Content-Type", "application/json");
@@ -123,11 +341,12 @@ int firebaseHttp(const String& url, const char* method, const String& body, Stri
   else status = http.GET();
   if (status > 0) response = http.getString();
   http.end();
+  if (!keepAlive || status <= 0) client.stop();  // Loi mang: lan sau mo ket noi moi.
   return status;
 }
 
-bool ensureFirebaseAuth() {
-  if (firebaseIdToken.length() && millis() - authenticatedAt < 45UL * 60UL * 1000UL) return true;
+bool signInFirebase() {
+  Serial.println("Firebase auth request starting");
   JsonDocument request;
   request["email"] = DEVICE_EMAIL;
   request["password"] = DEVICE_PASSWORD;
@@ -136,134 +355,241 @@ bool ensureFirebaseAuth() {
   serializeJson(request, body);
   String response;
   const String url = String("https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=") + FIREBASE_API_KEY;
-  const int authStatus = firebaseHttp(url, "POST", body, response);
+  const int authStatus = firebaseRequest(url, "POST", body, response, false);
   if (authStatus != 200) {
     Serial.printf("Firebase auth HTTP %d\n", authStatus);
     return false;
   }
-  Serial.println("Firebase auth OK");
   JsonDocument result;
   if (deserializeJson(result, response) != DeserializationError::Ok) return false;
-  const char* token = result["idToken"] | "";
-  if (!token[0]) return false;
-  firebaseIdToken = token;
-  authenticatedAt = millis();
+  const char* newToken = result["idToken"] | "";
+  if (!newToken[0]) return false;
+  Serial.println("Firebase auth OK");
+  firebaseToken = newToken;
+  lastSignInAt = millis();
+  portENTER_CRITICAL(&commandStreamTokenLock);
+  strlcpy(commandStreamToken, newToken, sizeof(commandStreamToken));
+  ++commandStreamGeneration;
+  portEXIT_CRITICAL(&commandStreamTokenLock);
   return true;
 }
 
-String firebasePath(const char* path) {
-  String base = FIREBASE_DATABASE_URL;
-  while (base.endsWith("/")) base.remove(base.length() - 1);
-  return base + "/devices/" + DEVICE_ID + "/" + path + ".json?auth=" + firebaseIdToken;
+String databaseBaseUrl() {
+  String baseUrl = FIREBASE_DATABASE_URL;
+  while (baseUrl.endsWith("/")) baseUrl.remove(baseUrl.length() - 1);
+  return baseUrl;
 }
 
-void pollCommands() {
+String firebasePath(const char* path) {
+  return databaseBaseUrl() + "/devices/" + DEVICE_ID + "/" + path + ".json?auth=" + firebaseToken;
+}
+
+// Ap dung lenh tu web. Bo qua lenh cu con luu tren Firebase sau khi khoi dong.
+void applyFirebaseCommand(JsonVariantConst value) {
+  if (xSemaphoreTake(commandMutex, pdMS_TO_TICKS(1000)) != pdTRUE) return;
+  if (value.isNull()) {
+    commandsInitialized = true;
+  } else if (value.is<JsonObjectConst>()) {
+    const char* commandId = value["commandId"] | "";
+    if (!commandsInitialized) {
+      lastCommandId = commandId;
+      commandsInitialized = true;
+      Serial.println("Ignoring retained commands on startup");
+    } else if (commandId[0] && lastCommandId != commandId) {
+      lastCommandId = commandId;
+      ControlCommand newCommand;
+      portENTER_CRITICAL(&stateLock);
+      newCommand = controlCommand;
+      portEXIT_CRITICAL(&stateLock);
+      if (value["fanOn"].is<bool>()) newCommand.fanOn = value["fanOn"].as<bool>();
+      if (value["alarmLedMode"].is<const char*>()) newCommand.redLedMode = parseMode(value["alarmLedMode"], newCommand.redLedMode);
+      if (value["statusLedMode"].is<const char*>()) newCommand.greenLedMode = parseMode(value["statusLedMode"], newCommand.greenLedMode);
+      if (value["buzzerMode"].is<const char*>()) newCommand.buzzerMode = parseMode(value["buzzerMode"], newCommand.buzzerMode);
+      if (value["muteRequestedAt"].is<uint64_t>()) newCommand.muteRequestedAt = value["muteRequestedAt"].as<uint64_t>();
+      strlcpy(newCommand.commandId, commandId, sizeof(newCommand.commandId));
+      portENTER_CRITICAL(&stateLock);
+      controlCommand = newCommand;
+      portEXIT_CRITICAL(&stateLock);
+      Serial.printf("Command applied: %s\n", commandId);
+    }
+  }
+  xSemaphoreGive(commandMutex);
+}
+
+void readFirebaseCommand() {
   String response;
-  const int status = firebaseHttp(firebasePath("commands"), "GET", "", response);
+  const int status = firebaseRequest(firebasePath("commands"), "GET", "", response, true);
   if (status != 200) {
     Serial.printf("Firebase commands HTTP %d\n", status);
     return;
   }
-  if (response == "null") {
-    commandsInitialized = true;
-    return;
-  }
+  if (commandStreamActive) return;
   JsonDocument value;
-  if (deserializeJson(value, response) != DeserializationError::Ok || !value.is<JsonObject>()) return;
-  const char* commandId = value["commandId"] | "";
-  if (!commandsInitialized) {
-    lastCommandId = commandId;
-    commandsInitialized = true;
-    Serial.println("Ignoring retained commands on startup");
-    return;
+  if (deserializeJson(value, response) == DeserializationError::Ok) {
+    applyFirebaseCommand(value.as<JsonVariantConst>());
   }
-  if (!commandId[0] || lastCommandId == commandId) return;
-  lastCommandId = commandId;
-  ControlCommands next;
-  portENTER_CRITICAL(&controlMux);
-  next = controls;
-  portEXIT_CRITICAL(&controlMux);
-  if (value["fanOn"].is<bool>()) next.fanOn = value["fanOn"].as<bool>();
-  if (value["fanSpeedPct"].is<int>()) {
-    const int speed = value["fanSpeedPct"].as<int>();
-    if (speed >= 0 && speed <= 100) next.fanSpeedPct = speed;
-  }
-  if (value["alarmLedMode"].is<const char*>()) next.alarmLedMode = parseOutputMode(value["alarmLedMode"], next.alarmLedMode);
-  if (value["statusLedMode"].is<const char*>()) next.statusLedMode = parseOutputMode(value["statusLedMode"], next.statusLedMode);
-  if (value["buzzerMode"].is<const char*>()) next.buzzerMode = parseOutputMode(value["buzzerMode"], next.buzzerMode);
-  if (value["muteRequestedAt"].is<uint64_t>()) next.muteRequestedAt = value["muteRequestedAt"].as<uint64_t>();
-  strlcpy(next.commandId, commandId, sizeof(next.commandId));
-  portENTER_CRITICAL(&controlMux);
-  controls = next;
-  portEXIT_CRITICAL(&controlMux);
 }
 
-bool publishTelemetry(uint8_t flags, const AppliedOutputs& current) {
+// Luong su kien (Server-Sent Events) de nhan lenh gan nhu tuc thi.
+void commandStreamTask(void*) {
+  char token[sizeof(commandStreamToken)];
+  for (;;) {
+    uint32_t generation;
+    portENTER_CRITICAL(&commandStreamTokenLock);
+    strlcpy(token, commandStreamToken, sizeof(token));
+    generation = commandStreamGeneration;
+    portEXIT_CRITICAL(&commandStreamTokenLock);
+    if (WiFi.status() != WL_CONNECTED || !token[0]) {
+      vTaskDelay(pdMS_TO_TICKS(500));
+      continue;
+    }
+
+    const String url = databaseBaseUrl() + "/devices/" + DEVICE_ID + "/commands.json?auth=" + token;
+    WiFiClientSecure streamClient;
+    streamClient.useBuiltinCACertBundle();
+    HTTPClient streamHttp;
+    if (!streamHttp.begin(streamClient, url)) {
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
+    }
+    streamHttp.addHeader("Accept", "text/event-stream");
+    streamHttp.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    streamHttp.setTimeout(4000);
+    const int status = streamHttp.GET();
+    if (status == 200) {
+      Serial.println("Firebase command stream connected");
+      commandStreamActive = true;
+      JsonDocument commandCache;
+      String eventName;
+      String eventData;
+      unsigned long lastEventAt = millis();
+      NetworkClient* stream = streamHttp.getStreamPtr();
+      while (WiFi.status() == WL_CONNECTED && streamHttp.connected()) {
+        uint32_t latestGeneration;
+        portENTER_CRITICAL(&commandStreamTokenLock);
+        latestGeneration = commandStreamGeneration;
+        portEXIT_CRITICAL(&commandStreamTokenLock);
+        if (latestGeneration != generation || millis() - lastEventAt > 45000) break;
+        if (!stream->available()) {
+          vTaskDelay(pdMS_TO_TICKS(10));
+          continue;
+        }
+        String line = stream->readStringUntil('\n');
+        line.trim();
+        lastEventAt = millis();
+        if (line.startsWith("event:")) {
+          eventName = line.substring(6);
+          eventName.trim();
+        } else if (line.startsWith("data:")) {
+          eventData = line.substring(5);
+          eventData.trim();
+        } else if (line.length() == 0 && eventName.length()) {
+          if (eventName == "auth_revoked" || eventName == "cancel") break;
+          if (eventName == "put" || eventName == "patch") {
+            JsonDocument event;
+            if (deserializeJson(event, eventData) == DeserializationError::Ok) {
+              const char* path = event["path"] | "/";
+              JsonVariantConst data = event["data"].as<JsonVariantConst>();
+              if (strcmp(path, "/") == 0) {
+                if (eventName == "put") commandCache.set(data);
+                else if (data.is<JsonObjectConst>()) {
+                  for (JsonPairConst entry : data.as<JsonObjectConst>()) {
+                    commandCache[entry.key()].set(entry.value());
+                  }
+                }
+              } else if (path[0] == '/' && strchr(path + 1, '/') == nullptr) {
+                commandCache[path + 1].set(data);
+              }
+              applyFirebaseCommand(commandCache.as<JsonVariantConst>());
+            }
+          }
+          eventName = "";
+          eventData = "";
+        }
+      }
+    } else {
+      Serial.printf("Firebase command stream HTTP %d\n", status);
+    }
+    commandStreamActive = false;
+    streamHttp.end();
+    streamClient.stop();
+    vTaskDelay(pdMS_TO_TICKS(1000));
+  }
+}
+
+bool sendFirebaseData(const DeviceState& current) {
   JsonDocument data;
-  data["flameDetected"] = (flags & FLAME_FLAG) != 0;
-  data["gasAlarm"] = (flags & GAS_FLAG) != 0;
+  data["flameDetected"] = current.flame;
+  data["gasAlarm"] = current.gas;
   data["fanOn"] = current.fanOn;
-  data["fanSpeedSupported"] = fanPwmReady;
-  data["fanSpeedPct"] = current.fanSpeedPct;
-  data["alarmLedOn"] = current.alarmLedOn;
-  data["statusLedOn"] = current.statusLedOn;
+  data["fanReason"] = current.fanReason;
+  data["alarmLedOn"] = current.redLedOn;
+  data["statusLedOn"] = current.greenLedOn;
   data["buzzerOn"] = current.buzzerOn;
-  data["alarmLedMode"] = outputModeName(current.alarmLedMode);
-  data["statusLedMode"] = outputModeName(current.statusLedMode);
-  data["buzzerMode"] = outputModeName(current.buzzerMode);
+  data["alarmLedMode"] = modeName(current.redLedMode);
+  data["statusLedMode"] = modeName(current.greenLedMode);
+  data["buzzerMode"] = modeName(current.buzzerMode);
   data["controlsVersion"] = 2;
+  data["logicVersion"] = FIRMWARE_LOGIC_VERSION;
   data["muteUntil"] = current.muteUntil;
+  data["gasWarmup"] = current.gasWarmup;
+  data["flameNoise"] = current.flameNoise;
+  data["flameGlitches"] = current.flameGlitches;
+  data["resetReason"] = resetReason;
+  data["uptimeS"] = millis() / 1000;
   data["appliedCommandId"] = current.commandId;
-  if (MQ2_AO_CONNECTED && gasRaw >= 0) data["gasRaw"] = gasRaw;
-  if (DHT11_CONNECTED && !isnan(temperatureC)) data["temperatureC"] = temperatureC;
-  if (DHT11_CONNECTED && !isnan(humidityPct)) data["humidityPct"] = humidityPct;
+  float currentTemperature;
+  float currentHumidity;
+  portENTER_CRITICAL(&stateLock);
+  currentTemperature = temperatureC;
+  currentHumidity = humidityPercent;
+  portEXIT_CRITICAL(&stateLock);
+  if (DHT11_CONNECTED && !isnan(currentTemperature) && !isnan(currentHumidity)) {
+    data["temperatureC"] = currentTemperature;
+    data["humidityPct"] = currentHumidity;
+  }
   data["updatedAt"][".sv"] = "timestamp";
   String body;
   serializeJson(data, body);
   String response;
-  const int status = firebaseHttp(firebasePath("telemetry"), "PUT", body, response);
+  const int status = firebaseRequest(firebasePath("telemetry"), "PUT", body, response, true);
   if (status != 200) Serial.printf("Firebase telemetry HTTP %d\n", status);
   return status == 200;
 }
 
-void cloudTask(void*) {
-  uint8_t lastPublishedFlags = 0xFF;
-  uint32_t lastPublishedRevision = UINT32_MAX;
-  unsigned long lastPublishedAt = 0;
-  unsigned long lastPublishAttemptAt = 0;
-  unsigned long lastCommandPollAt = 0;
-  unsigned long lastAuthAttemptAt = 0;
+void firebaseTask(void*) {
+  Serial.println("Firebase task started");
+  uint32_t lastSentVersion = UINT32_MAX;
+  unsigned long lastSendAt = 0;
+  unsigned long lastSendTryAt = 0;
+  unsigned long lastCommandReadAt = 0;
+  unsigned long lastSignInTryAt = 0;
   for (;;) {
     if (WiFi.status() == WL_CONNECTED && time(nullptr) > 1700000000) {
-      const bool tokenValid = firebaseIdToken.length() && millis() - authenticatedAt < 45UL * 60UL * 1000UL;
-      bool authenticated = tokenValid;
-      if (!authenticated && (lastAuthAttemptAt == 0 || millis() - lastAuthAttemptAt >= 2000)) {
-        lastAuthAttemptAt = millis();
-        authenticated = ensureFirebaseAuth();
+      bool signedIn = firebaseToken.length() && millis() - lastSignInAt < 45UL * 60UL * 1000UL;
+      if (!signedIn && (lastSignInTryAt == 0 || millis() - lastSignInTryAt >= 2000)) {
+        lastSignInTryAt = millis();
+        signedIn = signInFirebase();
       }
-      if (authenticated) {
-        const unsigned long now = millis();
-        uint8_t flags;
-        uint32_t revision;
-        AppliedOutputs current;
-        portENTER_CRITICAL(&controlMux);
-        flags = sensorFlags;
-        revision = telemetryRevision;
-        current = outputs;
-        portEXIT_CRITICAL(&controlMux);
-        const bool changed = flags != lastPublishedFlags || revision != lastPublishedRevision;
-        if ((changed || now - lastPublishedAt >= 5000) &&
-            (lastPublishAttemptAt == 0 || now - lastPublishAttemptAt >= 500)) {
-          lastPublishAttemptAt = now;
-          if (publishTelemetry(flags, current)) {
-            lastPublishedFlags = flags;
-            lastPublishedRevision = revision;
-            lastPublishedAt = millis();
+      if (signedIn) {
+        const unsigned long nowMs = millis();
+        uint32_t version;
+        DeviceState current;
+        portENTER_CRITICAL(&stateLock);
+        version = dataVersion;
+        current = deviceState;
+        portEXIT_CRITICAL(&stateLock);
+        if ((version != lastSentVersion || nowMs - lastSendAt >= SEND_INTERVAL_MS) &&
+            (lastSendTryAt == 0 || nowMs - lastSendTryAt >= 300)) {
+          lastSendTryAt = nowMs;
+          if (sendFirebaseData(current)) {
+            lastSentVersion = version;
+            lastSendAt = millis();
           }
         }
-        if (millis() - lastCommandPollAt >= 1000) {
-          pollCommands();
-          lastCommandPollAt = millis();
+        if (!commandStreamActive && millis() - lastCommandReadAt >= COMMAND_INTERVAL_MS) {
+          readFirebaseCommand();
+          lastCommandReadAt = millis();
         }
       }
     }
@@ -271,139 +597,28 @@ void cloudTask(void*) {
   }
 }
 
-// Local sensing and GPIO control continue without Wi-Fi or Firebase.
-void task_1(void*) {
-  unsigned long lastDhtSample = 0;
-  unsigned long lastStatusLog = 0;
-  unsigned long alarmStartedAt = 0;
-  bool alarmWasActive = false;
-  for (;;) {
-    const uint8_t flags = (digitalRead(FLAME_DO_PIN) == LOW ? FLAME_FLAG : 0) |
-                          (digitalRead(MQ2_DO_PIN) == LOW ? GAS_FLAG : 0);
-    ControlCommands command;
-    portENTER_CRITICAL(&controlMux);
-    command = controls;
-    portEXIT_CRITICAL(&controlMux);
-    const uint64_t nowEpoch = epochMillis();
-    const uint64_t muteUntil = command.muteRequestedAt > 0 ? command.muteRequestedAt + 30000ULL : 0;
-    const bool muted = nowEpoch > 1700000000000ULL && command.muteRequestedAt <= nowEpoch + 5000ULL && nowEpoch < muteUntil;
-    const bool flame = (flags & FLAME_FLAG) != 0;
-    const bool gas = (flags & GAS_FLAG) != 0;
-    const bool alarmActive = flame || gas;
-    if (alarmActive && !alarmWasActive) alarmStartedAt = millis();
-    alarmWasActive = alarmActive;
-    const int fanSpeed = gas ? 100 : command.fanSpeedPct;
-    const bool fanOn = !muted && (gas || (command.fanOn && fanSpeed > 0));
-    if (fanOn) onPan(fanSpeed); else offPan();
-    digitalWrite(ALARM_LED_PIN, !muted && (flame || gas || command.alarmLedMode == MODE_ON) ? HIGH : LOW);
-    digitalWrite(GAS_LED_PIN, !muted && (gas || command.statusLedMode == MODE_ON) ? HIGH : LOW);
-    const bool buzzerOn = !muted && (alarmActive ? ((millis() - alarmStartedAt) / 300) % 2 == 0 : command.buzzerMode == MODE_ON);
-    setBuzzer(buzzerOn);
-    AppliedOutputs applied;
-    applied.fanOn = state_pan != 0;
-    applied.fanSpeedPct = fanPwmReady ? fanSpeed : fanOn ? 100 : 0;
-    applied.alarmLedOn = digitalRead(ALARM_LED_PIN) == HIGH;
-    applied.statusLedOn = digitalRead(GAS_LED_PIN) == HIGH;
-    applied.buzzerOn = buzzerOn;
-    applied.alarmLedMode = command.alarmLedMode;
-    applied.statusLedMode = command.statusLedMode;
-    applied.buzzerMode = command.buzzerMode;
-    applied.muteUntil = muted ? muteUntil : 0;
-    strlcpy(applied.commandId, command.commandId, sizeof(applied.commandId));
-    bool changed;
-    bool sensorsChanged;
-    portENTER_CRITICAL(&controlMux);
-    sensorsChanged = flags != sensorFlags;
-    changed = sensorsChanged || strcmp(outputs.commandId, applied.commandId) != 0 ||
-              outputs.muteUntil != applied.muteUntil;
-    sensorFlags = flags;
-    outputs = applied;
-    if (changed) ++telemetryRevision;
-    portEXIT_CRITICAL(&controlMux);
-    if (sensorsChanged) Serial.printf("Sensor DO changed: flame=%d gas=%d\n", flame, gas);
-    if (changed && cloudTaskHandle) xTaskNotifyGive(cloudTaskHandle);
-    if (MQ2_AO_CONNECTED) gasRaw = analogRead(MQ2_AO_PIN);
-    const unsigned long now = millis();
-    if (now - lastStatusLog >= 5000) {
-      lastStatusLog = now;
-      Serial.printf("Monitor WiFi=%d time=%lld flame=%d gas=%d fan=%d buzzer=%d\n",
-                    static_cast<int>(WiFi.status()), static_cast<long long>(time(nullptr)),
-                    flame, gas, state_pan != 0, digitalRead(BUZZER_PIN));
-    }
-    if (DHT11_CONNECTED && now - lastDhtSample >= 2500) {
-      lastDhtSample = now;
-      readDht();
-    }
-    vTaskDelay(pdMS_TO_TICKS(20));
-  }
-}
-
-void connectConfiguredWiFi() {
-  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
-    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-      Serial.printf("WiFi disconnect reason=%u\n", info.wifi_sta_disconnected.reason);
-    }
-  });
-  WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
-  const int networkCount = WiFi.scanNetworks(false, true);
-  struct WifiCandidate { int32_t channel; uint8_t bssid[6]; };
-  WifiCandidate candidates[8];
-  int candidateCount = 0;
-  for (int i = 0; i < networkCount && candidateCount < 8; ++i) {
-    if (WiFi.SSID(i) == WIFI_SSID) {
-      candidates[candidateCount].channel = WiFi.channel(i);
-      memcpy(candidates[candidateCount].bssid, WiFi.BSSID(i), 6);
-      ++candidateCount;
-    }
-  }
-  Serial.printf("WiFi scan count=%d targetCount=%d\n", networkCount, candidateCount);
-  WiFi.scanDelete();
-  for (int i = 0; i < candidateCount; ++i) {
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, candidates[i].channel, candidates[i].bssid);
-    const unsigned long started = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - started < 12000) {
-      delay(100);
-    }
-    const bool connected = WiFi.status() == WL_CONNECTED;
-    Serial.printf("WiFi candidate channel=%d connected=%d\n", candidates[i].channel, connected);
-    if (connected) break;
-    WiFi.disconnect(false, false);
-    delay(500);
-  }
-
-  if (WiFi.status() != WL_CONNECTED) WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-}
-
 void setup() {
   Serial.begin(115200);
-  pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(ALARM_LED_PIN, OUTPUT);
-  pinMode(GAS_LED_PIN, OUTPUT);
-  pinMode(FAN_ON_PIN, OUTPUT);
-  pinMode(FAN_OFF_PIN, OUTPUT);
-  fanPwmReady = ledcAttach(FAN_ON_PIN, 1000, 8);
-  if (!fanPwmReady) Serial.println("PWM attach failed; fan remains on/off only");
-  pinMode(FLAME_DO_PIN, INPUT);
-  pinMode(MQ2_DO_PIN, INPUT);
-  if (MQ2_AO_CONNECTED) {
-    pinMode(MQ2_AO_PIN, INPUT);
-    analogReadResolution(12);
-    analogSetPinAttenuation(MQ2_AO_PIN, ADC_11db);
+  resetReason = resetReasonName(esp_reset_reason());
+  Serial.printf("Boot reason: %s\n", resetReason);
+  if (strcmp(resetReason, "brownout") == 0) {
+    Serial.println("Brownout: nguon 5V bi sut ap (thuong do cong USB may tinh khi quat chay)");
   }
-  setBuzzer(false);
-  digitalWrite(ALARM_LED_PIN, LOW);
-  digitalWrite(GAS_LED_PIN, LOW);
-  offPan();
-  if (DHT11_CONNECTED) dht.begin();
+  controls.begin();
+  sensors.begin();
+  commandMutex = xSemaphoreCreateMutex();
 
-  xTaskCreatePinnedToCore(task_1, "task_1", 6144, nullptr, 2, nullptr, 0);
+  // Core 1: task an toan (uu tien cao) + luong lenh. Core 0: Wi-Fi va gui telemetry.
+  xTaskCreatePinnedToCore(sensorTask, "sensorTask", 6144, nullptr, 3, nullptr, 1);
 
-  connectConfiguredWiFi();
+  connectWifi();
   configTime(0, 0, "pool.ntp.org", "time.google.com");
-  xTaskCreatePinnedToCore(cloudTask, "firebase", 10240, nullptr, 1, &cloudTaskHandle, 0);
+  const BaseType_t firebaseTaskCreated = xTaskCreatePinnedToCore(firebaseTask, "firebase", 10240, nullptr, 1, &firebaseTaskHandle, 0);
+  Serial.printf("Firebase task created=%d freeHeap=%u\n", firebaseTaskCreated == pdPASS, ESP.getFreeHeap());
+  const BaseType_t streamTaskCreated = xTaskCreatePinnedToCore(commandStreamTask, "commandStream", 12288, nullptr, 1, nullptr, 1);
+  Serial.printf("Command stream task created=%d freeHeap=%u\n", streamTaskCreated == pdPASS, ESP.getFreeHeap());
 }
 
 void loop() {
-  delay(1000);
+  vTaskDelay(pdMS_TO_TICKS(1000));
 }

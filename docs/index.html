@@ -10,8 +10,8 @@
   <title>Trạm giám sát an toàn</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1a1a'/%3E%3Cpath d='M16 6c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-5 3-6 0 2 1 3 2 3 0-3 0-6 1-9z' fill='%23fff'/%3E%3C/svg%3E">
   <script src="./theme.js?v=20261016-30"></script>
-  <link rel="stylesheet" href="./styles.css?v=20261017-2">
-  <script type="module" src="./app.js?v=20261016-30"></script>
+  <link rel="stylesheet" href="./styles.css?v=20261017-5">
+  <script type="module" src="./app.js?v=20261017-2"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -49,7 +49,13 @@
           <p class="subtle">Theo dõi lửa, khí gas, nhiệt độ, độ ẩm và điều khiển đèn, còi, quạt theo thời gian thực.</p>
         </div>
         <div class="hero-status">
-          <span id="safe-badge" class="badge badge-muted">Chờ dữ liệu</span>
+          <div class="hero-status-top">
+            <span id="safe-badge" class="badge badge-muted">Chờ dữ liệu</span>
+            <details id="notice-details" class="notice-details">
+              <summary class="notice-summary"><svg aria-hidden="true"><use href="#i-info"/></svg><span>Thông báo</span><span id="notice-count" class="notice-count" hidden></span></summary>
+              <div class="notice-content" role="status"><strong>Lưu ý thiết bị</strong><p id="noise-text">Không có lưu ý thiết bị.</p></div>
+            </details>
+          </div>
           <div class="connection" aria-live="polite">
             <span id="connection-dot" class="connection-dot"></span>
             <div><strong id="connection-label">Chưa kết nối</strong><small id="last-updated">Chưa có dữ liệu từ thiết bị</small></div>
@@ -79,7 +85,7 @@
       </section>
 
       <div id="dashboard" hidden>
-        <section id="demo-notice" class="infobar infobar-info" aria-label="Chế độ mô phỏng" hidden>
+        <section id="demo-notice" class="infobar infobar-info demo-toolbar" aria-label="Chế độ mô phỏng" hidden>
           <svg aria-hidden="true"><use href="#i-info"/></svg>
           <div><strong>Chế độ mô phỏng trên PC</strong>
           <p>Dữ liệu mẫu. Các nút chỉ thay đổi trang này, không gửi lệnh đến ESP32.</p></div>
@@ -88,12 +94,6 @@
             <button id="demo-gas" class="button" type="button" aria-pressed="false">Bật báo gas</button>
             <a class="link" href="./">Thoát mô phỏng</a>
           </div>
-        </section>
-
-        <section id="noise-banner" class="infobar infobar-warning" role="status" hidden>
-          <svg aria-hidden="true"><use href="#i-warn"/></svg>
-          <div><strong>Báo lửa có thể do nhiễu nguồn</strong>
-          <p id="noise-text">Tín hiệu lửa xuất hiện khi quạt chạy rồi mất ngay khi quạt dừng.</p></div>
         </section>
 
         <div id="dashboard-tabs" class="pivot" role="tablist" aria-label="Khu vực bảng điều khiển">
@@ -129,16 +129,15 @@
 
             <div class="setting-row">
               <span class="tile-icon"><svg aria-hidden="true"><use href="#i-fan"/></svg></span>
-              <div class="setting-text"><strong>Quạt thông gió</strong><small>D32 · <span id="fan-mode">Chưa có trạng thái</span></small><small id="fan-description" class="setting-note">Bật/tắt bằng tay. Gas tự bật quạt; báo lửa sẽ dừng quạt tay.</small></div>
+              <div class="setting-text"><strong>Quạt thông gió</strong><small>D32 · <span id="fan-mode">Chưa có trạng thái</span></small><small id="fan-description" class="setting-note">Gas tự bật quạt, hết gas chạy thêm 3 giây. Có lửa thì quạt dừng, kể cả khi đồng thời có gas.</small></div>
               <div class="segmented" role="group" aria-label="Điều khiển quạt"><button id="fan-off" class="segment" type="button" aria-pressed="false" disabled>Tắt</button><button id="fan-on" class="segment" type="button" aria-pressed="false" disabled>Bật</button></div>
             </div>
 
             <div class="setting-row">
               <span class="tile-icon"><svg aria-hidden="true"><use href="#i-mute"/></svg></span>
-              <div class="setting-text"><strong>Tắt tiếng còi 30 giây</strong><small id="mute-description">Chỉ tắt còi khi đang cảnh báo. Đèn đỏ và quạt vẫn chạy.</small></div>
+              <div class="setting-text"><strong>Tắt tiếng còi 30 giây</strong><small id="mute-description">Chỉ tắt còi khi đang cảnh báo. Đèn và quạt vẫn theo logic an toàn.</small></div>
               <button id="mute-button" class="button" type="button" disabled>Tắt tiếng</button>
             </div>
-            <div id="suppression-banner" class="infobar infobar-info infobar-inline" role="status" hidden></div>
             <p id="command-status" class="command-status subtle" role="status">Đang chờ kết nối.</p>
           </article>
         </div>
@@ -156,9 +155,9 @@
               <button id="clear-history-all" class="button button-danger" type="button" disabled>Xóa toàn bộ</button>
             </div>
           </div>
-          <p class="subtle history-note">Lưu tối đa 100 mục trên trình duyệt này. Hệ thống ghi cảnh báo và phản ứng tự động; “Bạn đã nhấn” ghi thao tác điều khiển.</p>
+          <p class="subtle history-note">Lưu tối đa 100 mục trên trình duyệt này. Hệ thống chỉ ghi khi phát hiện lửa/gas và khi hết cảnh báo; “Bạn đã nhấn” ghi thao tác điều khiển.</p>
           <p id="history-status" class="history-status" role="status"></p>
-          <div class="card history-card">
+          <div class="card history-card" role="region" aria-label="Danh sách lịch sử hoạt động" tabindex="0">
             <ol id="history-list" class="history-list" aria-live="polite"></ol>
             <p id="history-empty" class="history-empty subtle">Chưa có hoạt động nào được ghi lại.</p>
           </div>

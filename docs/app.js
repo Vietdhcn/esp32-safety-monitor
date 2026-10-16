@@ -1,11 +1,18 @@
 import { firebaseConfig, deviceId } from './config.js';
 import { chuanHoaDuLieu, duLieuCu, laMoPhongNoiBo, taoDuLieuMoPhong, cacCheDo, luaChonMauDen, lenhDen, coTheDieuKhien, coTheTamTat, dangTamTat, tamTatTatCa, laLogicMoi, lenhHopLe, tienDoLenh } from './dashboard-model.js?v=20261016-30';
-import { cacThayDoiLichSu, themLichSu, lichSuThaoTac, locLichSu, xoaLichSuTheoNguon, lamSachLichSuHeThongCu } from './history-model.js?v=20261016-30';
+import { cacThayDoiLichSu, themLichSu, lichSuThaoTac, locLichSu, xoaLichSuTheoNguon, lamSachLichSuHeThongCu } from './history-model.js?v=20261017-1';
 
 const $ = id => document.getElementById(id);
 const thongBaoCauHinh = $('setup-message');
 const khungDangNhap = $('login-panel');
 const bangDieuKhien = $('dashboard');
+const khungThongBao = $('notice-details');
+document.addEventListener('click', event => {
+  if (khungThongBao.open && !khungThongBao.contains(event.target)) khungThongBao.open = false;
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') khungThongBao.open = false;
+});
 const duongDanTrang = new URL(window.location.href);
 const xemTruocNoiBo = ['localhost', '127.0.0.1'].includes(duongDanTrang.hostname);
 const cheDoMoPhong = laMoPhongNoiBo(duongDanTrang);
@@ -59,7 +66,7 @@ capNhatDongHo();
 setInterval(capNhatDongHo, 1000);
 
 function luuLichSu() {
-  try { localStorage.setItem(khoaLichSu, JSON.stringify({ version: 2, items: cacMucLichSu, previous: duLieuTruoc, cleared: cacMucLichSu.length === 0 })); }
+  try { localStorage.setItem(khoaLichSu, JSON.stringify({ version: 3, items: cacMucLichSu, previous: duLieuTruoc, cleared: cacMucLichSu.length === 0 })); }
   catch { $('history-status').textContent = 'Không thể lưu lịch sử trên trình duyệt này.'; }
 }
 
@@ -131,9 +138,10 @@ function datPhamViLichSu(scope) {
       typeof item.title === 'string' && typeof item.detail === 'string' &&
       ['info', 'safe', 'danger', 'device', 'user'].includes(item.kind))
       .slice(0, 100).map(item => ({ ...item, source: item.source === 'user' ? 'user' : 'system' }));
-    if (Array.isArray(daLuu?.items) && daLuu.version !== 2) {
-      lichSuCuCanChuyen = true;
-      cacMucLichSu = lamSachLichSuHeThongCu(cacMucLichSu);
+    if (Array.isArray(daLuu?.items)) {
+      const daLoc = lamSachLichSuHeThongCu(cacMucLichSu);
+      lichSuCuCanChuyen = daLuu.version !== 3 || daLoc.length !== cacMucLichSu.length;
+      cacMucLichSu = daLoc;
     }
     if (daLuu?.previous && typeof daLuu.previous === 'object') duLieuTruoc = daLuu.previous;
     boQuaLanDocDau = daLuu?.cleared === true;
@@ -230,19 +238,23 @@ function hienThi() {
 
   const nghiNhieu = !duLieuQuaCu && duLieuThietBi.flameNoise;
   const sutAp = !duLieuQuaCu && duLieuThietBi.resetReason === 'brownout';
-  $('noise-banner').hidden = !nghiNhieu && !sutAp;
-  datChu('noise-text', [
+  const soLuuY = Number(nghiNhieu) + Number(sutAp);
+  khungThongBao.classList.toggle('has-notice', soLuuY > 0);
+  if (!soLuuY) khungThongBao.open = false;
+  $('notice-count').hidden = soLuuY === 0;
+  datChu('notice-count', String(soLuuY));
+  datChu('noise-text', soLuuY ? [
     nghiNhieu ? 'Tín hiệu lửa xuất hiện khi quạt chạy rồi mất ngay khi quạt dừng, thường do cổng USB máy tính không đủ dòng cho quạt.' : '',
     sutAp ? 'ESP32 vừa khởi động lại vì sụt áp nguồn (brownout).' : '',
     'Nên cấp nguồn bằng cục sạc 5 V, hoặc chuyển VCC cảm biến lửa sang chân 3V3.'
-  ].filter(Boolean).join(' '));
+  ].filter(Boolean).join(' ') : 'Không có lưu ý thiết bị.');
 
   hienThiDieuKhien(duLieuQuaCu, coCanhBao);
 }
 
 function moTaQuat(duLieu) {
-  const lyDo = { gas: 'Tự bật vì phát hiện gas', purge: 'Thông gió thêm 30 giây sau khi hết gas',
-    manual: 'Đang bật bằng tay', blocked: 'Đã dừng quạt tay vì báo lửa', off: 'Bật tay hoặc tự bật khi có gas' };
+  const lyDo = { gas: 'Tự bật vì phát hiện gas', purge: 'Thông gió thêm 3 giây sau khi hết gas',
+    manual: 'Đang bật bằng tay', blocked: 'Đã dừng quạt vì báo lửa', off: 'Bật tay hoặc tự bật khi có gas' };
   if (duLieu.fanReason) return lyDo[duLieu.fanReason];
   return duLieu.gasAlarm ? 'Tự bật khi có gas' : 'Bật tay hoặc tự bật khi có gas';
 }
@@ -267,10 +279,7 @@ function hienThiDieuKhien(duLieuQuaCu, coCanhBao) {
         ['gas', 'purge', 'blocked'].includes(duLieuThietBi.fanReason) ? moTaQuat(duLieuThietBi) :
         duLieuThietBi.gasAlarm ? 'Tự bật khi có gas' : duLieuThietBi.fanOn ? 'Đang bật' : 'Đang tắt');
   datChu('automation-status', 'Tự động: LED xanh khi an toàn, đỏ khi có gas hoặc lửa; còi kêu khi có nguy cơ; quạt tự bật khi có gas và dừng khi có lửa.');
-  $('suppression-banner').hidden = !coiDangTatTieng;
   const conLai = Math.max(0, Math.ceil((duLieuThietBi.muteUntil - Date.now()) / 1000));
-  datChu('suppression-banner', logicMoi ? `Còi đang tắt tiếng · còn ${conLai} giây. Đèn đỏ và quạt vẫn hoạt động.` :
-    `Đang tạm tắt đầu ra · còn ${conLai} giây. Cảm biến vẫn được theo dõi.`);
   const denDangCho = lenhDangCho?.values?.alarmLedMode != null && lenhDangCho?.values?.statusLedMode != null ?
     luaChonMauDen(lenhDangCho.values) : null;
   const denDuocYeuCau = denDangCho &&
@@ -302,7 +311,10 @@ function hienThiDieuKhien(duLieuQuaCu, coCanhBao) {
   }
   $('mute-button').disabled = dangBan || !coTheTamTat(duLieuThietBi);
   datChu('mute-button', coiDangTatTieng ? `Còn ${conLai} giây` : 'Tắt tiếng');
-  datChu('mute-description', logicMoi || cheDoMoPhong ? 'Chỉ tắt còi khi đang cảnh báo. Đèn đỏ và quạt vẫn chạy.' :
+  datChu('mute-description', coiDangTatTieng ? logicMoi ?
+    'Còi đang tắt tiếng. Đèn và quạt vẫn theo logic an toàn.' :
+    'Đang tạm tắt đầu ra. Cảm biến vẫn được theo dõi.' :
+    logicMoi || cheDoMoPhong ? 'Chỉ tắt còi khi đang cảnh báo. Đèn và quạt vẫn theo logic an toàn.' :
     'Firmware cũ: tạm tắt cả còi, đèn và quạt. Nạp firmware mới để chỉ tắt còi.');
   const huongDan = duLieuQuaCu ? 'Cần dữ liệu mới từ ESP32 để điều khiển.' : duLieuThietBi.controlsVersion !== 2 ?
     'Cần nạp firmware mới để dùng điều khiển LED hai màu, còi và tạm tắt.' : dangTam ? 'Các ngõ ra đang tạm tắt. Hết 30 giây sẽ trở lại chế độ trước đó.' :

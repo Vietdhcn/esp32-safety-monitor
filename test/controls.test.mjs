@@ -55,7 +55,7 @@ test('stale telemetry locks commands, and either alarm locks the bicolor LED', (
   assert.equal(model.coTheDieuKhien(gas, 'ledMode', now), false);
   assert.equal(model.coTheDieuKhien(gas, 'buzzerMode', now), false);
   const flame = { ...safe(now), flameDetected: true };
-  assert.equal(model.coTheDieuKhien(flame, 'fanOn', now), true);
+  assert.equal(model.coTheDieuKhien(flame, 'fanOn', now), false);
   assert.equal(model.coTheDieuKhien(flame, 'ledMode', now), false);
 });
 
@@ -75,7 +75,7 @@ test('command success needs receipt of this command ID from ESP32', () => {
   assert.equal(model.tienDoLenh?.(pending, {}, 121_000), 'timeout');
 });
 
-test('demo fan follows on/off, gas priority and temporary mute', () => {
+test('demo fan follows manual on/off, gas activation and temporary mute', () => {
   const reading = model.taoDuLieuMoPhong({ manualFan: true,
     alarmLedMode: 'on', statusLedMode: 'off', buzzerMode: 'off' }, 100_000);
   assert.equal(reading.alarmLedOn, true);
@@ -105,6 +105,8 @@ test('red D22 overrides green D23 for either hazard', () => {
   const both = model.taoDuLieuMoPhong({ gasAlarm: true, flameDetected: true }, now);
   assert.equal(both.alarmLedOn, true);
   assert.equal(both.statusLedOn, false);
+  assert.equal(both.fanOn, false, 'flame stops the fan even while gas is detected');
+  assert.equal(both.fanReason, 'blocked');
 });
 
 test('manual fan can turn on then off without changing buzzer or indicator modes', () => {

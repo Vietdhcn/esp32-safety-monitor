@@ -1,45 +1,115 @@
 # Trạm giám sát an toàn ESP32
 
-ESP32 đọc cảm biến và điều khiển đầu ra tại chỗ; Firebase Realtime Database chuyển dữ liệu và lệnh cho dashboard GitHub Pages. Mất Wi-Fi không làm dừng cảnh báo cục bộ.
+Project dùng ESP32 để phát hiện lửa và khí gas, đo nhiệt độ/độ ẩm, rồi điều khiển LED, còi và quạt. ESP32 tự xử lý cảnh báo tại chỗ. Firebase Realtime Database chuyển trạng thái và lệnh giữa thiết bị với dashboard web; mất Wi-Fi không làm dừng phần cảnh báo cục bộ.
 
-## Phần cứng
+## Chạy nhanh
 
-| Chức năng | GPIO | Hành vi |
+**Xem giao diện không cần ESP32:** trên Windows, chạy `chay-web-local.bat`. Script mở trang web local (thường là `http://localhost:8000/`); thêm `?demo=1` thành `http://localhost:8000/?demo=1` để xem dữ liệu mô phỏng. Giữ cửa sổ script mở khi dùng web. Chế độ demo chỉ thay đổi trang trên máy, không điều khiển thiết bị.
+
+**Dùng thiết bị thật:** đấu dây theo bảng GPIO bên dưới, cấu hình Firebase và `secrets.h`, nạp firmware, rồi mở web **không có** `?demo=1` và đăng nhập bằng tài khoản được cấp quyền.
+
+## Cấu trúc project
+
+| Đường dẫn | Vai trò |
+|---|---|
+| `firmware/AnToanESP32/` | Sketch và các module chạy trên ESP32 |
+| `docs/` | Dashboard tĩnh; có thể chạy local hoặc dùng GitHub Pages |
+| `firebase.rules.json` | Database Rules của Firebase project hiện tại |
+| `firebase.rules.template.json` | Mẫu Rules cho Firebase project mới |
+| `chay-web-local.bat`, `tools/chay-web-local.ps1` | Mở dashboard trên Windows |
+| `nap-esp32.bat`, `tools/nap-esp32.ps1` | Biên dịch, nạp và mở Serial Monitor trên Windows |
+| `test/` | Kiểm thử logic và hợp đồng của firmware/web |
+
+### Firmware được chia thành những file nào?
+
+| File | Nhiệm vụ |
+|---|---|
+| [`AnToanESP32.ino`](firmware/AnToanESP32/AnToanESP32.ino) | Khởi động các task, nhận lệnh Firebase, ghép dữ liệu cảm biến với logic an toàn và gửi telemetry. |
+| [`Sensors.h`](firmware/AnToanESP32/Sensors.h) | Khởi tạo và đọc cảm biến lửa ở GPIO16, MQ-2 ở GPIO17, DHT11 ở GPIO27; kiểm tra số đo DHT hợp lệ. |
+| [`SafetyLogic.h`](firmware/AnToanESP32/SafetyLogic.h) | Bộ lọc tín hiệu DO, các mốc thời gian an toàn và hàm quyết định quạt/LED/còi từ trạng thái cảm biến và lệnh. Không đọc hoặc ghi GPIO. |
+| [`Controls.h`](firmware/AnToanESP32/Controls.h) | Khởi tạo và ghi GPIO cho LED đỏ/xanh, còi và quạt L9110S. |
+| [`DhtSample.h`](firmware/AnToanESP32/DhtSample.h) | Xác định khi nào số đo DHT thay đổi để cập nhật telemetry. |
+| [`secrets.example.h`](firmware/AnToanESP32/secrets.example.h) | Mẫu cấu hình Wi-Fi/Firebase; sao chép thành `secrets.h` trước khi biên dịch. |
+
+Luồng xử lý: **Sensors.h đọc tín hiệu → `.ino` lọc/ghép trạng thái bằng SafetyLogic.h → Controls.h điều khiển đầu ra → `.ino` gửi trạng thái lên Firebase → dashboard hiển thị**. `secrets.h` chứa mật khẩu thật, đã được Git bỏ qua.
+
+## Phần cứng và kết nối
+
+| Thiết bị | Chân ESP32 | Ghi chú |
 |---|---:|---|
-| Cảm biến lửa DO | 16 | LOW là phát hiện lửa |
-| MQ-2 DO | 17 | LOW là vượt ngưỡng gas trên module |
-| LED cảnh báo đỏ | 22 | Sáng khi có gas hoặc lửa |
-| LED gas | 23 | Sáng khi có gas |
-| Còi | 13 | LOW là kêu; nháy khi có lửa hoặc gas |
-| Driver quạt L9110S kênh A | 32 (A-IA), 33 (A-IB) | D32 PWM 1 kHz, D33 LOW; quạt ở MOTOR A |
-| DHT11 DATA | 27 | Tùy chọn, bật `DHT11_CONNECTED` sau khi đấu dây |
-| MQ-2 AO | 34 | Tùy chọn, bật `MQ2_AO_CONNECTED` sau khi qua mạch chia áp |
+| Cảm biến lửa DO/S | GPIO16 | LOW = phát hiện lửa |
+| MQ-2 DO | GPIO17 | LOW = vượt ngưỡng trên module |
+| LED hai màu, chân đỏ | GPIO22 | Sáng khi có cảnh báo |
+| LED hai màu, chân xanh | GPIO23 | Sáng khi an toàn |
+| Còi | GPIO13 | Mức LOW làm còi kêu |
+| L9110S kênh A | GPIO32 → A-IA; GPIO33 → A-IB | Quạt nối MOTOR A; GPIO32 Bật/Tắt, GPIO33 luôn LOW |
+| DHT11 DATA | GPIO27 | Nhiệt độ °C và độ ẩm % |
 
-Ảnh mạch người dùng gửi cho thấy module HW-020/L9110S hai kênh, không phải relay. Bảng trên theo cách code cũ chạy quạt ở D32 HIGH, D33 LOW; kiểm tra lại hai dây điều khiển thực tế trước khi nạp. PWM là **mức điều khiển 0–100%**, không phải tốc độ RPM đo được. Gas luôn ép quạt 100%; điều khiển tay chỉ áp dụng khi không có gas. Nút **Tắt quạt** có hiệu lực ở chế độ tay. Có thể lưu mức PWM khi quạt tắt mà không bật quạt; khi quạt đang chạy, mức mới áp dụng ở vòng điều khiển tiếp theo. Mức 0% tương đương tắt quạt; nút bật quạt sẽ khôi phục mức 100% nếu mức đang lưu là 0%.
+Nối **GND chung** giữa ESP32 và các module. Cấp DHT11 bằng 3,3 V; cảm biến DHT11 rời có thể cần điện trở kéo lên khoảng 10 kΩ giữa DATA và 3,3 V. Nếu không lắp DHT11, đặt `#define DHT11_CONNECTED false` trong `secrets.h`.
 
-MQ-2 dùng nguồn phù hợp module. Nếu DO/AO lên 5 V, phải hạ về tối đa 3,3 V trước khi vào ESP32; nối chung GND. MQ-2 cần thời gian làm nóng và chỉnh ngưỡng DO trên biến trở. Giá trị AO trên web chỉ là tỷ lệ ADC, không phải ppm. Driver L9110S cần nguồn quạt riêng phù hợp điện áp và dòng của quạt; không lấy nguồn motor trực tiếp từ GPIO.
+GPIO ESP32 chỉ nhận tín hiệu mức 3,3 V. Nếu DO của MQ-2 hoặc S/DO của cảm biến lửa lên 5 V, đo và chuyển mức trước khi nối GPIO16/17; ngắt nguồn trước khi đổi dây. MQ-2 cần làm nóng và chỉnh ngưỡng DO bằng biến trở. Firmware chỉ dùng DO, không đọc AO hay đo ppm. Cấp nguồn quạt theo điện áp và dòng của motor, không cấp motor trực tiếp từ GPIO.
 
-Nếu thử gas mà **đèn báo DO trên chính module lửa** cũng sáng, ESP32 sẽ nhận cả hai cảnh báo; web không thể phân biệt đó là lửa thật hay tín hiệu giả từ module. Kiểm tra chân VCC của module lửa có nguồn 3,3 V ổn định (không lấy từ chân LED/còi/quạt), GND chung, dây DO về GPIO16 và dây MQ-2 DO về GPIO17. Chỉnh biến trở ngưỡng của module lửa để DO không kích hoạt khi chỉ xả gas từ bật lửa chưa châm, nhưng vẫn kích hoạt khi có lửa; kiểm tra lại khi bật và tắt quạt/còi để phát hiện nhiễu nguồn. Không tắt cảnh báo lửa bằng mã khi gas xuất hiện, vì hệ thống phải báo cả hai nếu hai cảm biến thật sự kích hoạt.
+## Cấu hình Firebase và Wi-Fi
 
-## Logic cảnh báo
+1. Trong Firebase Console, bật **Realtime Database** và **Authentication → Sign-in method → Email/Password**.
+2. Tạo tài khoản **thiết bị** cho ESP32 và tài khoản **chủ sở hữu** để đăng nhập dashboard. Lấy UID của từng tài khoản trong Authentication → Users.
+3. Với Firebase project hiện tại, kiểm tra UID trong `firebase.rules.json` rồi áp dụng tại Realtime Database → Rules. Với project mới, thay `OWNER_UID_HERE` và `DEVICE_UID_HERE` trong `firebase.rules.template.json` bằng UID thật rồi Publish.
+4. Sao chép `firmware/AnToanESP32/secrets.example.h` thành `firmware/AnToanESP32/secrets.h`. Điền `WIFI_SSID`, `WIFI_PASSWORD`, `FIREBASE_API_KEY`, `FIREBASE_DATABASE_URL`, `DEVICE_EMAIL`, `DEVICE_PASSWORD` của tài khoản thiết bị.
+5. Nếu dùng Firebase project mới, cập nhật Web config ở `docs/config.js`. ID thiết bị trong `docs/config.js`, hằng `DEVICE_ID` trong `.ino` và nhánh `devices/<deviceId>` của Rules phải trùng nhau. ID hiện tại là `esp32s-30p-01`.
 
-- Gas hoặc lửa bật LED đỏ D22; riêng gas bật thêm LED D23 và quạt. Còi nháy khi có một trong hai cảnh báo. ESP32 đọc cảm biến khoảng mỗi 20 ms; khi tín hiệu đổi, gửi telemetry ngay sau khi hoàn tất yêu cầu HTTPS đang chạy. Web nhận thay đổi qua Firebase Realtime Database. ESP32 vẫn gửi trạng thái định kỳ mỗi 5 giây và kiểm tra lệnh mỗi 1 giây.
-- Mỗi LED và còi có chế độ **Tự động / Bật / Tắt** khi không có cảnh báo tương ứng. Trong cảnh báo, đầu ra an toàn tương ứng được ưu tiên.
-- **Tạm tắt 30 giây** tắt các đầu ra nhưng vẫn đọc và hiển thị cảm biến. Hết hạn, nguy cơ còn thì đầu ra tự bật lại. Không có chức năng tắt cảnh báo vĩnh viễn.
-- Web khóa lệnh khi telemetry cũ hơn 15 giây. Sau khi nhấn, giao diện hiển thị trạng thái yêu cầu kèm “chờ xác nhận”; trạng thái thực được xác nhận bằng `appliedCommandId` từ ESP32. Nếu chưa được xác nhận sau 20 giây, giao diện trở về dữ liệu telemetry và báo lỗi.
-- Sau mỗi lần khởi động, ESP32 bỏ qua lệnh điều khiển cũ còn lưu trên Firebase; quạt tay mặc định tắt. Lệnh mới từ web có `commandId` mới sẽ được áp dụng.
+Không đưa mật khẩu vào `docs/` hoặc commit `secrets.h`. `docs/config.js` là cấu hình web công khai; quyền đọc/ghi do Authentication và Database Rules quyết định.
 
-## Cấu hình và nạp
+## Biên dịch và nạp firmware
 
-1. Sao chép `firmware/AnToanESP32/secrets.example.h` thành `secrets.h` cùng thư mục. Điền Wi-Fi, Firebase API key, URL Database và tài khoản **thiết bị**. File riêng đã bị Git bỏ qua. Không đặt mật khẩu trong `docs/`.
-2. Dùng Firebase Authentication Email/Password cho tài khoản thiết bị và người xem. Áp dụng `firebase.rules.json` trong Realtime Database Rules; `firebase.rules.template.json` là mẫu khi thay UID.
-3. Mở `firmware/AnToanESP32/AnToanESP32.ino` trong Arduino IDE. Chọn **ESP32 Dev Module**, Arduino ESP32 core 3.3.12, Partition Scheme **Minimal SPIFFS (1.9MB APP with OTA)**. Cài ArduinoJson 7.4.3, DHT sensor library 1.4.7 và Adafruit Unified Sensor. Biên dịch trước khi nạp.
-4. Mở Serial Monitor 115200 để xem kết nối Wi-Fi/Firebase và trạng thái cảm biến. Sau khi nạp, thử riêng từng DO, cả hai DO, bật/tắt quạt, mức PWM và tạm tắt 30 giây.
+### 1. Xác định cổng COM của ESP32
 
-## Web
+Dùng **cáp USB truyền dữ liệu** nối ESP32 với máy. Trong Windows, mở **Device Manager → Ports (COM & LPT)**; hoặc mở **Arduino IDE → Tools → Port**. Ghi danh sách cổng, rút ESP32 rồi cắm lại: cổng biến mất và xuất hiện lại là cổng cần chọn. Đừng chọn COM của Bluetooth hay COM1 chỉ vì chúng đang hiện trong danh sách.
 
-- Kiểm thử: `npm test`.
-- Xem tại máy: `python -m http.server 8000 --directory docs`, mở `http://localhost:8000/?demo=1` để thử giao diện không cần ESP32.
-- GitHub Pages phục vụ thư mục `docs/`: [Trạm giám sát](https://vietdhcn.github.io/esp32-safety-monitor/).
+Trên máy phát triển project, thiết bị USB-SERIAL CH340 từng hiện là **COM10**. Hãy xác nhận bằng thao tác rút/cắm vì số COM có thể thay đổi. Có thể xem tên cổng bằng PowerShell:
 
-`docs/config.js` chỉ chứa Firebase Web config công khai. Quyền đọc/ghi thật nằm trong Database Rules. Firmware chỉ đọc lệnh, ghi telemetry và dùng HTTPS xác thực chứng chỉ.
+```powershell
+Get-PnpDevice -PresentOnly -Class Ports | Select-Object FriendlyName, InstanceId
+```
+
+Nếu cắm ESP32 mà không có cổng USB Serial/CH340/CP210x mới, thử cáp dữ liệu khác, cổng USB khác và kiểm tra driver USB-Serial phù hợp với bo.
+
+### 2. Chuẩn bị Arduino IDE
+
+Cài **Arduino IDE 2**, board core **ESP32 3.3.12** trong Boards Manager và các thư viện sau trong Library Manager: **ArduinoJson 7.4.3**, **DHT sensor library 1.4.7**, **Adafruit Unified Sensor**. Tạo `secrets.h` trước khi bấm Verify.
+
+### 3. Nạp bằng Arduino IDE
+
+1. Mở `firmware/AnToanESP32/AnToanESP32.ino`. Các file `.h` phải nằm cùng thư mục sketch.
+2. Chọn **Tools → Board → ESP32 Dev Module**, **Tools → Partition Scheme → Minimal SPIFFS (1.9MB APP with OTA)** và **Tools → Port → COM của ESP32**.
+3. Bấm **Verify**, rồi **Upload**. Đóng Serial Monitor hoặc phần mềm khác đang giữ COM trước khi nạp. Nếu dừng ở `Connecting...`, giữ nút **BOOT** đến khi bắt đầu ghi rồi thả.
+4. Khi nạp xong, mở **Tools → Serial Monitor**, đặt **115200 baud**. Nhấn **EN/RESET** nếu cần để xem log khởi động, Wi-Fi, Firebase và cảm biến.
+
+### Hoặc nạp bằng script Windows
+
+Chạy `nap-esp32.bat` tại thư mục gốc sau khi đã cài board core, thư viện và tạo `secrets.h`. Script tìm `arduino-cli`, biên dịch, tìm cổng COM, nạp và mở Serial Monitor 115200. Nếu script liệt kê nhiều cổng, nhập đúng COM đã xác nhận bằng rút/cắm (ví dụ `COM10`); không nhận cổng mặc định nếu đó là Bluetooth. Nhấn `Ctrl+C` để thoát Serial Monitor của script.
+
+## Hành vi cảnh báo và dashboard
+
+- ESP32 đọc DO lửa/gas khoảng mỗi 20 ms và lọc xung ngắn; DHT11 được đọc mỗi 2,5 giây. Trạng thái được gửi lên Firebase khoảng mỗi 2 giây và khi có thay đổi.
+- An toàn: LED xanh sáng. Có lửa hoặc gas: LED đỏ sáng, còi kêu liên tục. Gas tự bật quạt; khi hết gas đã xác nhận, quạt thông gió thêm 3 giây. Có lửa thì quạt dừng ngay, kể cả khi đồng thời có gas. Bộ lọc giữ báo gas thêm 2 giây sau khi DO hết báo để tránh nhiễu, nên tổng thời gian từ lúc DO hết báo đến khi quạt dừng có thể khoảng 5 giây.
+- Web cho chọn LED **Tự động / Đỏ / Xanh / Tắt**, còi **Tự động / Bật / Tắt**, quạt **Bật / Tắt**. Trong cảnh báo, LED đỏ và còi được ưu tiên. Nút **Tắt tiếng còi 30 giây** chỉ tắt còi; LED, quạt và cảm biến vẫn hoạt động.
+- Web khóa lệnh nếu telemetry cũ hơn 15 giây. Sau khi gửi, web chờ ESP32 xác nhận bằng `appliedCommandId`; quá 20 giây chưa xác nhận sẽ báo lỗi. ESP32 bỏ qua lệnh cũ còn trên Firebase sau khi khởi động lại.
+- Tab **Lịch sử** lưu tối đa 100 mục trong `localStorage` của từng trình duyệt, tách theo tài khoản và thiết bị. Lịch sử này không được lưu trên Firebase. Tùy chọn **Ghi nhớ đăng nhập** giữ phiên Firebase sau khi đóng trình duyệt; trang không lưu mật khẩu trong `localStorage`.
+
+Dashboard nằm trong `docs/`. Trên Windows dùng `chay-web-local.bat`; nếu có Python, có thể chạy `python -m http.server 8000 --directory docs` tại thư mục gốc. Bản GitHub Pages của project: [Trạm giám sát an toàn](https://vietdhcn.github.io/esp32-safety-monitor/).
+
+## Kiểm thử
+
+Chạy `npm test` tại thư mục gốc (cần Node.js; project không có dependency npm phải cài). Bài kiểm tra C++ chạy khi máy có `g++` hoặc `clang++`; nếu thiếu, bài đó được bỏ qua. Sau khi nạp bo, thử lần lượt cảm biến lửa, MQ-2, cả hai cảm biến, quạt bật/tắt và nút tắt tiếng còi 30 giây; đối chiếu LED, còi, quạt, Serial Monitor và dashboard.
+
+## Sự cố thường gặp
+
+| Hiện tượng | Kiểm tra |
+|---|---|
+| Không thấy cổng COM mới | Cáp USB phải truyền dữ liệu; thử cổng USB khác và driver CH340/CP210x đúng với bo. |
+| Upload báo cổng bận hoặc kẹt `Connecting...` | Chọn đúng COM; đóng Serial Monitor/chương trình đang mở cổng; giữ BOOT khi bắt đầu nạp. |
+| ESP32 chạy nhưng web báo dữ liệu cũ | Kiểm tra Wi-Fi, tài khoản thiết bị, Database URL, Rules và log Serial 115200. |
+| Đăng nhập web được nhưng không điều khiển | Kiểm tra UID có quyền gửi lệnh, ID thiết bị giống nhau ở web/firmware/Rules và firmware đã nạp bản mới. |
+| DHT11 hiện “—” | Kiểm tra DATA GPIO27, 3,3 V, GND, điện trở kéo lên nếu cần và `DHT11_CONNECTED`. |
+| Báo lửa khi quạt chạy | Xem đèn DO trên module lửa và log `Alarm changed` / `Monitor ... rawFlame=...` ở Serial Monitor; kiểm tra nguồn, GND, dây DO và ngưỡng cảm biến. |
+| Web báo cần firmware Bật/Tắt | Nạp lại firmware trong thư mục này; web khóa nút quạt khi còn nhận telemetry từ bản PWM cũ. |
