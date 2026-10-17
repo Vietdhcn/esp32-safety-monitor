@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chuanHoaDuLieu, duLieuCu, coTheDatQuat } from '../docs/dashboard-model.js';
+import { chuanHoaDuLieu, duLieuCu, thietBiNgoaiTuyen, coTheDatQuat } from '../docs/dashboard-model.js';
 import * as model from '../docs/dashboard-model.js';
 
 test('normalizes digital sensor alarms without an analog gas level', () => {
@@ -41,10 +41,12 @@ test('local demo has only separate digital gas and flame alarms', () => {
   assert.equal('gasRaw' in gasOnly, false);
 });
 
-test('telemetry older than 15 seconds is stale', () => {
-  assert.equal(duLieuCu(1_000, 16_001), true);
-  assert.equal(duLieuCu(1_000, 16_000), false);
-  assert.equal(duLieuCu(null, 16_000), true);
+test('a brief telemetry retry does not mark the device offline', () => {
+  assert.equal(duLieuCu(1_000, 18_300), true);
+  assert.equal(thietBiNgoaiTuyen(1_000, 18_300), false);
+  assert.equal(thietBiNgoaiTuyen(1_000, 31_000), false);
+  assert.equal(thietBiNgoaiTuyen(1_000, 31_001), true);
+  assert.equal(thietBiNgoaiTuyen(null, 16_000), true);
 });
 
 test('fan command is blocked on stale data, gas alarm, or flame alarm', () => {
@@ -52,6 +54,7 @@ test('fan command is blocked on stale data, gas alarm, or flame alarm', () => {
   assert.equal(coTheDatQuat(safe, 20_000), true);
   assert.equal(coTheDatQuat({ ...safe, gasAlarm: true }, 20_000), false);
   assert.equal(coTheDatQuat({ ...safe, flameDetected: true }, 20_000), false);
+  assert.equal(coTheDatQuat(safe, 27_300), false);
   assert.equal(coTheDatQuat(safe, 30_000), false);
 });
 

@@ -1,5 +1,5 @@
 import { firebaseConfig, deviceId } from './config.js';
-import { chuanHoaDuLieu, duLieuCu, laMoPhongNoiBo, taoDuLieuMoPhong, cacCheDo, luaChonMauDen, lenhDen, coTheDieuKhien, coTheTamTat, dangTamTat, tamTatTatCa, laLogicMoi, lenhHopLe, tienDoLenh } from './dashboard-model.js?v=20261016-30';
+import { chuanHoaDuLieu, duLieuCu, thietBiNgoaiTuyen, laMoPhongNoiBo, taoDuLieuMoPhong, cacCheDo, luaChonMauDen, lenhDen, coTheDieuKhien, coTheTamTat, dangTamTat, tamTatTatCa, laLogicMoi, lenhHopLe, tienDoLenh } from './dashboard-model.js?v=20261017-2';
 import { cacThayDoiLichSu, themLichSu, lichSuThaoTac, locLichSu, xoaLichSuTheoNguon, lamSachLichSuHeThongCu } from './history-model.js?v=20261017-1';
 
 const $ = id => document.getElementById(id);
@@ -204,10 +204,11 @@ function hienThi() {
   if (tienDo === 'applied') { thongBaoLenh = 'ESP32 đã áp dụng lệnh.'; lenhDangCho = null; }
   if (tienDo === 'timeout') { thongBaoLenh = 'ESP32 chưa xác nhận lệnh sau 20 giây. Kiểm tra trạng thái thiết bị.'; lenhDangCho = null; }
   const duLieuQuaCu = duLieuCu(duLieuThietBi.updatedAt);
+  const ngoaiTuyen = thietBiNgoaiTuyen(duLieuThietBi.updatedAt);
   const coCanhBao = duLieuThietBi.flameDetected === true || duLieuThietBi.gasAlarm === true;
   const trangThaiKetNoi = `connection-dot ${duLieuQuaCu || coCanhBao ? 'alert' : 'online'}`;
   if ($('connection-dot').className !== trangThaiKetNoi) $('connection-dot').className = trangThaiKetNoi;
-  datChu('connection-label', cheDoMoPhong ? 'Mô phỏng trên PC' : duLieuQuaCu ? 'Thiết bị ngoại tuyến' : coCanhBao ? 'Có cảnh báo' : 'Đã kết nối');
+  datChu('connection-label', cheDoMoPhong ? 'Mô phỏng trên PC' : ngoaiTuyen ? 'Thiết bị ngoại tuyến' : duLieuQuaCu ? 'Chờ dữ liệu mới' : coCanhBao ? 'Có cảnh báo' : 'Đã kết nối');
   datChu('last-updated', cheDoMoPhong ? 'Dữ liệu mẫu, không kết nối ESP32' : duLieuThietBi.updatedAt == null ? 'Chưa có dữ liệu từ thiết bị' :
     `Cập nhật lúc ${new Date(duLieuThietBi.updatedAt).toLocaleString('vi-VN')}`);
 

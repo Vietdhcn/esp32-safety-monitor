@@ -45,10 +45,14 @@ export function chuanHoaDuLieu(giaTri = {}) {
   };
 }
 
-export function duLieuCu(thoiDiemCapNhat, hienTai = Date.now()) {
+function quaHanCapNhat(thoiDiemCapNhat, hienTai, nguongMs) {
   return typeof thoiDiemCapNhat !== 'number' || !Number.isFinite(thoiDiemCapNhat) || thoiDiemCapNhat <= 0 ||
-    hienTai - thoiDiemCapNhat > 15_000 || thoiDiemCapNhat - hienTai > 5_000;
+    hienTai - thoiDiemCapNhat > nguongMs || thoiDiemCapNhat - hienTai > 5_000;
 }
+export const duLieuCu = (thoiDiemCapNhat, hienTai = Date.now()) =>
+  quaHanCapNhat(thoiDiemCapNhat, hienTai, 15_000);
+export const thietBiNgoaiTuyen = (thoiDiemCapNhat, hienTai = Date.now()) =>
+  quaHanCapNhat(thoiDiemCapNhat, hienTai, 30_000);
 export const coCanhBao = duLieu => duLieu?.flameDetected === true || duLieu?.gasAlarm === true;
 export const dangTamTat = (duLieu, hienTai = Date.now()) => duLieu?.muteUntil > hienTai;
 // Firmware cũ: tạm tắt dừng mọi đầu ra. Firmware mới: chỉ tắt tiếng còi.

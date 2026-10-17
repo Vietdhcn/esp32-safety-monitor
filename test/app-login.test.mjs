@@ -115,10 +115,13 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(nodes.get('humidity-value').textContent, '64.2 %');
   state.reading({ val: () => ({ ...safe, temperatureC: 28.3, humidityPct: 64.2,
     updatedAt: Date.now() - 20_000 }) });
+  assert.equal(nodes.get('connection-label').textContent, 'Chờ dữ liệu mới');
   assert.equal(nodes.get('fan-value').dataset.output, 'unknown', 'stale fan data must not look active');
   assert.equal(nodes.get('led-state').dataset.output, 'unknown', 'stale LED data must not keep its previous color');
   assert.equal(nodes.get('temperature-value').textContent, '—');
   assert.match(nodes.get('temperature-detail').textContent, /cũ/);
+  state.reading({ val: () => ({ ...safe, updatedAt: Date.now() - 31_000 }) });
+  assert.equal(nodes.get('connection-label').textContent, 'Thiết bị ngoại tuyến');
   state.reading({ val: () => safe });
   assert.equal(nodes.get('temperature-value').textContent, '—', 'a failed reading must clear the old value');
   assert.equal(nodes.get('humidity-value').textContent, '—');

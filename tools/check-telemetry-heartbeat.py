@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 SECONDS = 90
 INTERVAL = 5
-MAX_AGE_SECONDS = 15
+MAX_AGE_SECONDS = 30
 
 
 def config_value(source: str, name: str) -> str:
@@ -44,25 +44,40 @@ def main() -> int:
          "password": config_value(source, "DEVICE_PASSWORD"), "returnSecureToken": True},
     )
     url = database_url + "/devices/esp32s-30p-01/telemetry.json?auth=" + auth["idToken"]
-    previous_timestamp = None
+    previous_uptime = None
+    observed_hardware_id = None
+    oldest_age = 0.0
+    stale_samples = 0
     for sample in range(SECONDS // INTERVAL + 1):
         telemetry = get_json(url)
         if not isinstance(telemetry, dict):
             print("FAIL: telemetry is missing", file=sys.stderr)
             return 1
         timestamp = telemetry.get("updatedAt")
+        uptime = telemetry.get("uptimeS")
+        hardware_id = telemetry.get("hardwareId")
         age = (time.time() * 1000 - timestamp) / 1000 if isinstance(timestamp, (int, float)) else float("inf")
-        print(f"sample={sample + 1} age={age:.1f}s uptime={telemetry.get('uptimeS')}", flush=True)
+        oldest_age = max(oldest_age, age)
+        stale_samples += age > 15
+        print(f"sample={sample + 1} age={age:.1f}s uptime={uptime} hardware={hardware_id} reset={telemetry.get('resetReason')}", flush=True)
+        if observed_hardware_id is not None and hardware_id != observed_hardware_id:
+            print("FAIL: telemetry hardware ID changed; another writer uses this device path", file=sys.stderr)
+            return 1
+        if isinstance(hardware_id, str) and observed_hardware_id is None:
+            observed_hardware_id = hardware_id
         if age > MAX_AGE_SECONDS:
             print(f"FAIL: telemetry is older than {MAX_AGE_SECONDS}s", file=sys.stderr)
             return 1
-        if sample == SECONDS // INTERVAL and previous_timestamp == timestamp:
-            print("FAIL: telemetry did not advance", file=sys.stderr)
+        if isinstance(uptime, int) and isinstance(previous_uptime, int) and uptime < previous_uptime:
+            print("FAIL: device uptime decreased; check for a reset or duplicate Firebase writer", file=sys.stderr)
             return 1
-        previous_timestamp = timestamp
+        previous_uptime = uptime
         if sample < SECONDS // INTERVAL:
             time.sleep(INTERVAL)
-    print("PASS: telemetry stayed fresh")
+    if observed_hardware_id is None:
+        print("FAIL: telemetry has no hardware ID from the flashed ESP32", file=sys.stderr)
+        return 1
+    print(f"PASS: no offline interval; oldest={oldest_age:.1f}s; samples over 15s={stale_samples}")
     return 0
 
 

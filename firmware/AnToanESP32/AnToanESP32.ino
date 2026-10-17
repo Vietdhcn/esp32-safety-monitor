@@ -277,13 +277,20 @@ uint32_t commandStreamGeneration = 0;
 portMUX_TYPE commandStreamTokenLock = portMUX_INITIALIZER_UNLOCKED;
 
 void connectWifi() {
-  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
-    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-      Serial.printf("WiFi disconnect reason=%u\n", info.wifi_sta_disconnected.reason);
-    }
-  });
+  static bool eventHandlerInstalled = false;
+  if (!eventHandlerInstalled) {
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+      if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+        Serial.printf("WiFi disconnect reason=%u\n", info.wifi_sta_disconnected.reason);
+      }
+    });
+    eventHandlerInstalled = true;
+  }
+  // Dung lan ket noi dang chay truoc khi scan; neu khong scanNetworks tra -2.
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(true, false);
+  delay(250);
   WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
   const int networkCount = WiFi.scanNetworks(false, true);
   struct WifiNetwork { int32_t channel; uint8_t bssid[6]; };
   WifiNetwork matchingNetworks[8];
@@ -310,6 +317,7 @@ void connectWifi() {
     delay(500);
   }
   if (WiFi.status() != WL_CONNECTED) WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.setAutoReconnect(true);
 }
 
 int parseMode(const char* value, int defaultMode) {
@@ -332,6 +340,9 @@ int firebaseRequest(const String& url, const char* method, const String& body, S
   if (!clientsReady) {
     authClient.useBuiltinCACertBundle();
     databaseClient.useBuiltinCACertBundle();
+    // HTTP timeout khong gioi han TLS handshake; mac dinh cua core la 120 giay.
+    authClient.setHandshakeTimeout(6);
+    databaseClient.setHandshakeTimeout(6);
     clientsReady = true;
   }
   WiFiClientSecure& client = keepAlive ? databaseClient : authClient;
@@ -339,6 +350,7 @@ int firebaseRequest(const String& url, const char* method, const String& body, S
   HTTPClient http;
   http.setReuse(keepAlive);
   if (!http.begin(client, url)) return -1;
+  http.setConnectTimeout(4000);
   http.setTimeout(3500);
   if (strcmp(method, "GET") != 0) http.addHeader("Content-Type", "application/json");
   int status = -1;
@@ -463,6 +475,7 @@ void commandStreamTask(void*) {
     const String url = databaseBaseUrl() + "/devices/" + DEVICE_ID + "/commands.json?auth=" + token;
     WiFiClientSecure streamClient;
     streamClient.useBuiltinCACertBundle();
+    streamClient.setHandshakeTimeout(6);
     HTTPClient streamHttp;
     if (!streamHttp.begin(streamClient, url)) {
       vTaskDelay(pdMS_TO_TICKS(1000));
@@ -470,6 +483,7 @@ void commandStreamTask(void*) {
     }
     streamHttp.addHeader("Accept", "text/event-stream");
     streamHttp.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    streamHttp.setConnectTimeout(4000);
     streamHttp.setTimeout(4000);
     const int status = streamHttp.GET();
     if (status == 200) {
@@ -533,8 +547,12 @@ void commandStreamTask(void*) {
   }
 }
 
-bool sendFirebaseData(const DeviceState& current) {
+int sendFirebaseData(const DeviceState& current) {
   JsonDocument data;
+  char hardwareId[13];
+  snprintf(hardwareId, sizeof(hardwareId), "%012llX",
+           static_cast<unsigned long long>(ESP.getEfuseMac()));
+  data["hardwareId"] = hardwareId;
   data["flameDetected"] = current.flame;
   data["gasAlarm"] = current.gas;
   data["fanOn"] = current.fanOn;
@@ -573,7 +591,7 @@ bool sendFirebaseData(const DeviceState& current) {
   Serial.printf("Telemetry PUT HTTP %d took %lu ms\n", status,
                 static_cast<unsigned long>(millis() - startedAt));
   if (status != 204) Serial.printf("Firebase telemetry HTTP %d\n", status);
-  return status == 204;
+  return status;
 }
 
 void firebaseTask(void*) {
@@ -584,8 +602,16 @@ void firebaseTask(void*) {
   bool lastSendFailed = false;
   unsigned long lastCommandReadAt = 0;
   unsigned long lastSignInTryAt = 0;
+  unsigned long lastWifiRecoveryAt = 0;
+  unsigned long lastWifiScanAt = millis();
+  uint8_t consecutiveNetworkFailures = 0;
   uint32_t lastPublishedAlarmEdgeAtMs = 0;
   for (;;) {
+    if (WiFi.status() != WL_CONNECTED && millis() - lastWifiScanAt >= 30000) {
+      lastWifiScanAt = millis();
+      Serial.println("WiFi offline; scanning known SSID again");
+      connectWifi();
+    }
     if (WiFi.status() == WL_CONNECTED && time(nullptr) > 1700000000) {
       bool signedIn = firebaseToken.length() && millis() - lastSignInAt < 45UL * 60UL * 1000UL;
       if (!signedIn && (lastSignInTryAt == 0 || millis() - lastSignInTryAt >= 2000)) {
@@ -603,7 +629,27 @@ void firebaseTask(void*) {
         if (telemetrySendDue(version, lastSentVersion, nowMs, lastSendAt,
                              lastSendFailed, lastSendTryAt)) {
           lastSendTryAt = nowMs;
-          lastSendFailed = !sendFirebaseData(current);
+          const int telemetryStatus = sendFirebaseData(current);
+          lastSendFailed = telemetryStatus != 204;
+          if (telemetryStatus < 0) {
+            if (consecutiveNetworkFailures < 3) ++consecutiveNetworkFailures;
+            if (consecutiveNetworkFailures >= 3 &&
+                (lastWifiRecoveryAt == 0 || millis() - lastWifiRecoveryAt >= 30000)) {
+              lastWifiRecoveryAt = millis();
+              consecutiveNetworkFailures = 0;
+              const int channel = WiFi.channel();
+              uint8_t bssid[6];
+              Serial.printf("WiFi recovery after HTTPS failures; RSSI=%d dBm channel=%d\n",
+                            WiFi.RSSI(), channel);
+              if (WiFi.status() == WL_CONNECTED && WiFi.BSSID(bssid) != nullptr) {
+                WiFi.disconnect(false, false);
+                // Hai AP cung SSID: ket noi lai dung BSSID da dang nhap duoc.
+                WiFi.begin(WIFI_SSID, WIFI_PASSWORD, channel, bssid);
+              }
+            }
+          } else {
+            consecutiveNetworkFailures = 0;
+          }
           if (!lastSendFailed) {
             lastSentVersion = version;
             lastSendAt = millis();
@@ -615,7 +661,8 @@ void firebaseTask(void*) {
             }
           }
         }
-        if (!commandStreamActive && millis() - lastCommandReadAt >= COMMAND_INTERVAL_MS) {
+        if (WiFi.status() == WL_CONNECTED && !commandStreamActive &&
+            millis() - lastCommandReadAt >= COMMAND_INTERVAL_MS) {
           readFirebaseCommand();
           lastCommandReadAt = millis();
         }
