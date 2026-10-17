@@ -223,7 +223,8 @@ form input[type="email"]:focus, form input[type="password"]:focus { outline: non
 .metric-head { display: flex; align-items: center; gap: 10px; }
 .metric-head h3 { font-size: 13px; font-weight: 400; color: var(--text-2); }
 .metric-card strong { margin-top: 6px; font-size: 22px; font-weight: 600; line-height: 1.25; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.metric-card p { min-block-size: 2.9em; font-size: 12px; }
+/* Giữ chiều cao mô tả theo dòng chữ thực tế, kể cả khi trình duyệt tăng cỡ chữ tối thiểu. */
+.metric-card p { min-block-size: 2.9em; min-block-size: 2lh; font-size: 12px; }
 .metric-card.alert { border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: var(--danger-fill); }
 .metric-card.alert strong, .metric-card.alert .tile-icon { color: var(--danger); }
 .tile-icon { display: grid; place-items: center; width: 32px; height: 32px; flex: none; border-radius: 6px; background: var(--subtle-fill); color: var(--text); }
@@ -287,16 +288,19 @@ form input[type="email"]:focus, form input[type="password"]:focus { outline: non
   .history-item { grid-template-columns: auto minmax(0, 1fr); }
   .history-item time { grid-column: 2; }
 }
+@media (max-width: 480px) {
+  .command-status { min-block-size: 60px; }
+}
+@media (min-width: 381px) and (max-width: 480px) {
+  .metric-card p { min-block-size: 4.35em; min-block-size: 3lh; }
+}
 @media (max-width: 380px) {
   .metric-grid { grid-template-columns: 1fr; }
-}
-@media (max-width: 480px) {
-  .metric-card p { min-block-size: 4.35em; }
-  .command-status { min-block-size: 60px; }
 }
 @media (max-width: 320px) {
   .fan-mode-line { min-block-size: 4.35em; }
 }
 @media (max-width: 260px) {
+  #gas-alarm-detail { min-block-size: 3lh; }
   .command-status { min-block-size: 80px; }
 }
