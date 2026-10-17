@@ -20,6 +20,7 @@ let duLieuThietBi = chuanHoaDuLieu();
 let huyTheoDoiDuLieu = null;
 let coSoDuLieu = null;
 let lenhDangCho = null;
+let luaChonQuat = 'auto';
 let dangGuiLenh = false;
 let thongBaoLenh = '';
 let guiLenh = async () => {};
@@ -219,12 +220,7 @@ function hienThi() {
 
   hienSoDo('flame-value', duLieuQuaCu || duLieuThietBi.flameDetected == null ? null : duLieuThietBi.flameDetected ? 'Phát hiện' : 'An toàn');
   hienSoDo('gas-alarm-value', duLieuQuaCu || duLieuThietBi.gasAlarm == null ? null : duLieuThietBi.gasAlarm ? 'Phát hiện' : 'An toàn');
-  const quatDangCho = !duLieuQuaCu ? lenhDangCho?.requested?.fanOn : null;
-  hienSoDo('fan-value', quatDangCho != null ?
-    quatDangCho ? 'Chờ bật' : 'Chờ tắt' :
-    duLieuQuaCu || duLieuThietBi.fanOn == null ? null : duLieuThietBi.fanOn ? 'Đang bật' : 'Đang tắt');
   const trangThaiQuat = duLieuQuaCu || duLieuThietBi.fanOn == null ? 'unknown' : duLieuThietBi.fanOn ? 'on' : 'off';
-  $('fan-value').closest('.metric-card').dataset.output = trangThaiQuat;
   $('fan-mode').closest('.setting-row').dataset.output = trangThaiQuat;
   hienSoDo('temperature-value', duLieuQuaCu || duLieuThietBi.temperatureC == null ? null : duLieuThietBi.temperatureC.toFixed(1), ' °C');
   hienSoDo('humidity-value', duLieuQuaCu || duLieuThietBi.humidityPct == null ? null : duLieuThietBi.humidityPct.toFixed(1), ' %');
@@ -235,8 +231,6 @@ function hienThi() {
   datChu('flame-detail', duLieuQuaCu ? 'Không có dữ liệu mới' : 'Tín hiệu cảm biến lửa');
   datChu('gas-alarm-detail', duLieuQuaCu ? 'Không có dữ liệu mới' :
     duLieuThietBi.gasWarmup ? 'MQ-2 đang làm nóng (~1 phút sau khi cấp nguồn)' : 'Ngưỡng DO trên MQ-2');
-  datChu('fan-detail', quatDangCho != null ? 'Đã gửi lệnh, chờ ESP32 xác nhận' :
-    duLieuQuaCu ? 'Không có dữ liệu mới' : moTaQuat(duLieuThietBi));
   $('flame-value').closest('.metric-card').classList.toggle('alert', !duLieuQuaCu && duLieuThietBi.flameDetected === true);
   $('gas-alarm-value').closest('.metric-card').classList.toggle('alert', !duLieuQuaCu && duLieuThietBi.gasAlarm === true);
 
@@ -272,16 +266,20 @@ function hienThiDieuKhien(duLieuQuaCu, coCanhBao) {
   const muonBatQuat = lenhDangCho?.values?.fanOn ?? duLieuThietBi.fanOn;
   const choPhepDatQuat = !dangBan && coTheDieuKhien(duLieuThietBi, 'fanOn');
   const hienThiLuaChonQuat = !duLieuQuaCu && !duLieuThietBi.gasAlarm && !dangTam && muonBatQuat != null;
-  $('fan-off').disabled = !choPhepDatQuat;
-  $('fan-off').setAttribute('aria-pressed', String(hienThiLuaChonQuat && muonBatQuat === false));
-  $('fan-on').disabled = !choPhepDatQuat;
-  $('fan-on').setAttribute('aria-pressed', String(hienThiLuaChonQuat && muonBatQuat === true));
+  const cheDoQuatDangCho = lenhDangCho?.requested?.fanOn == null ? null : luaChonQuat;
+  const cheDoQuat = muonBatQuat === true ? 'on' : luaChonQuat;
+  for (const choice of ['off', 'on', 'auto']) {
+    const button = $('fan-' + choice);
+    button.disabled = !choPhepDatQuat;
+    button.setAttribute('aria-pressed', String(hienThiLuaChonQuat && cheDoQuat === choice));
+  }
+  $('fan-mode').closest('.setting-row').dataset.pendingOutput = cheDoQuatDangCho === 'on' ? 'on' : cheDoQuatDangCho === 'auto' ? 'auto' : cheDoQuatDangCho === 'off' ? 'off' : '';
   datChu('fan-mode', lenhDangCho?.requested?.fanOn != null ?
-    muonBatQuat ? 'Chờ bật' : 'Chờ tắt' :
+    cheDoQuatDangCho === 'auto' ? 'Chờ tự động' : muonBatQuat ? 'Chờ bật' : 'Chờ tắt' :
     duLieuQuaCu || duLieuThietBi.fanOn == null ? 'Chưa có dữ liệu mới' :
       dangTam ? 'Tạm tắt 30 giây' : duLieuThietBi.legacyPwmActive ? 'Cần nạp firmware Bật/Tắt' :
         ['gas', 'purge', 'blocked'].includes(duLieuThietBi.fanReason) ? moTaQuat(duLieuThietBi) :
-        duLieuThietBi.gasAlarm ? 'Tự bật khi có gas' : duLieuThietBi.fanOn ? 'Đang bật' : 'Đang tắt');
+        duLieuThietBi.gasAlarm ? 'Tự bật khi có gas' : duLieuThietBi.fanOn ? 'Đang bật' : luaChonQuat === 'auto' ? 'Tự động · Đang tắt' : 'Đang tắt');
   datChu('automation-status', 'Tự động: LED xanh khi an toàn, đỏ khi có gas hoặc lửa; còi kêu khi có nguy cơ; quạt tự bật khi có gas và dừng khi có lửa.');
   const conLai = Math.max(0, Math.ceil((duLieuThietBi.muteUntil - Date.now()) / 1000));
   const denDangCho = lenhDangCho?.values?.alarmLedMode != null && lenhDangCho?.values?.statusLedMode != null ?
@@ -297,6 +295,7 @@ function hienThiDieuKhien(duLieuQuaCu, coCanhBao) {
   $('led-state').closest('.setting-row').dataset.output =
     duLieuQuaCu || duLieuThietBi.alarmLedOn == null || duLieuThietBi.statusLedOn == null ? 'unknown' :
       duLieuThietBi.alarmLedOn ? 'red' : duLieuThietBi.statusLedOn ? 'green' : 'off';
+  $('led-state').closest('.setting-row').dataset.pendingOutput = denDuocYeuCau ?? '';
   for (const choice of ['auto', 'red', 'green', 'off']) {
     const button = $('led-' + choice);
     button.disabled = dangBan || !coTheDieuKhien(duLieuThietBi, 'ledMode');
@@ -310,6 +309,8 @@ function hienThiDieuKhien(duLieuQuaCu, coCanhBao) {
       cheDoYeuCau === 'off' ? 'Chờ tắt' :
       duLieuQuaCu || thucTe == null ? '—' : coiDangTatTieng ? 'Đang tắt tiếng' :
       coCanhBao ? 'Đang cảnh báo' : thucTe ? 'Đang bật' : 'Đang tắt');
+    $(key + '-state').closest('.setting-row').dataset.output = duLieuQuaCu || thucTe == null ? 'unknown' : thucTe ? 'on' : 'off';
+    $(key + '-state').closest('.setting-row').dataset.pendingOutput = cheDoYeuCau ?? '';
     for (const value of ['auto', 'on', 'off']) {
       const button = $(key + '-' + value);
       button.disabled = dangBan || !coTheDieuKhien(duLieuThietBi, key);
@@ -385,6 +386,10 @@ if (cheDoMoPhong) {
     if (huyTheoDoiDuLieu) huyTheoDoiDuLieu();
     huyTheoDoiDuLieu = onValue(ref(coSoDuLieu, `devices/${deviceId}/telemetry`), snapshot => {
       duLieuThietBi = chuanHoaDuLieu(snapshot.val());
+      if (!lenhDangCho) {
+        if (duLieuThietBi.fanReason === 'manual') luaChonQuat = 'on';
+        else if (['gas', 'purge', 'blocked'].includes(duLieuThietBi.fanReason)) luaChonQuat = 'auto';
+      }
       ghiDuLieu();
       hienThi();
     }, error => {
@@ -397,6 +402,7 @@ if (cheDoMoPhong) {
   onAuthStateChanged(auth, user => {
     const daDangNhap = Boolean(user);
     lenhDangCho = null;
+    luaChonQuat = 'auto';
     thongBaoLenh = '';
     khungDangNhap.hidden = daDangNhap;
     bangDieuKhien.hidden = !daDangNhap;
@@ -459,6 +465,7 @@ if (cheDoMoPhong) {
       await update(ref(coSoDuLieu, `devices/${deviceId}/commands`), duLieuGui);
       ghiThaoTac(giaTriGhiSu, 'sent');
     } catch {
+      if ('fanOn' in values) luaChonQuat = duLieuThietBi.fanOn ? 'on' : 'auto';
       lenhDangCho = null;
       thongBaoLenh = 'Gửi lệnh thất bại. Kiểm tra kết nối và quyền truy cập Firebase.';
       ghiThaoTac(giaTriGhiSu, 'failed');
@@ -472,13 +479,18 @@ if (cheDoMoPhong) {
 
 $('fan-off').addEventListener('click', () => {
   if (!coTheDieuKhien(duLieuThietBi, 'fanOn')) return;
-  if ((lenhDangCho?.values?.fanOn ?? duLieuThietBi.fanOn) === false) return;
+  luaChonQuat = 'off';
   return guiLenh({ fanOn: false });
 });
 $('fan-on').addEventListener('click', () => {
   if (!coTheDieuKhien(duLieuThietBi, 'fanOn')) return;
-  if ((lenhDangCho?.values?.fanOn ?? duLieuThietBi.fanOn) === true) return;
+  luaChonQuat = 'on';
   return guiLenh({ fanOn: true });
+});
+$('fan-auto').addEventListener('click', () => {
+  if (!coTheDieuKhien(duLieuThietBi, 'fanOn')) return;
+  luaChonQuat = 'auto';
+  return guiLenh({ fanOn: false });
 });
 for (const key of cacCheDo) for (const value of ['auto', 'on', 'off']) {
   $(key + '-' + value).addEventListener('click', () => {

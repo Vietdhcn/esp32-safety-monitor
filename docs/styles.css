@@ -224,7 +224,7 @@ form input[type="email"]:focus, form input[type="password"]:focus { outline: non
 .form-error { min-height: 20px; color: var(--danger); font-size: 13px; }
 
 /* Thẻ chỉ số */
-.metric-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .metric-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 16px; transition: background .15s, border-color .15s; }
 .metric-head { display: flex; align-items: center; gap: 10px; }
 .metric-head h3 { font-size: 13px; font-weight: 400; color: var(--text-2); }
@@ -233,14 +233,12 @@ form input[type="email"]:focus, form input[type="password"]:focus { outline: non
 .metric-card p { min-block-size: 2.9em; min-block-size: 2lh; font-size: 12px; }
 .metric-card.alert { border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: var(--danger-fill); }
 .metric-card.alert strong, .metric-card.alert .tile-icon { color: var(--danger); }
-.metric-card[data-output="on"] { border-color: color-mix(in srgb, var(--fan-active) 45%, var(--stroke)); background: var(--fan-active-fill); }
-.metric-card[data-output="on"] strong, .metric-card[data-output="on"] .tile-icon { color: var(--fan-active); }
 .tile-icon { display: grid; place-items: center; width: 32px; height: 32px; flex: none; border-radius: 6px; background: var(--subtle-fill); color: var(--text); }
 .tile-icon svg { width: 18px; height: 18px; }
 @keyframes fan-turn { to { transform: rotate(360deg); } }
-.metric-card[data-output="on"] .tile-icon svg, .setting-row[data-output="on"] .tile-icon svg { animation: fan-turn 1.2s linear infinite; }
+.setting-row:has(#fan-mode)[data-output="on"] .tile-icon svg { animation: fan-turn 1.2s linear infinite; }
 @media (prefers-reduced-motion: reduce) {
-  .metric-card[data-output="on"] .tile-icon svg, .setting-row[data-output="on"] .tile-icon svg { animation: none; }
+  .setting-row:has(#fan-mode)[data-output="on"] .tile-icon svg { animation: none; }
 }
 
 /* Danh sách cài đặt kiểu Windows Settings */
@@ -251,12 +249,25 @@ form input[type="email"]:focus, form input[type="password"]:focus { outline: non
 .setting-text strong { display: block; font-weight: 400; font-size: 14px; }
 .setting-text small { display: block; color: var(--text-2); font-size: 12px; }
 .setting-text .setting-note { margin-top: 2px; color: var(--text-3); }
-.setting-row[data-output="on"] .tile-icon { background: var(--fan-active-fill); color: var(--fan-active); }
-.setting-row[data-output="on"] #fan-mode { color: var(--fan-active); font-weight: 600; }
-.setting-row[data-output="red"] .tile-icon { background: var(--danger-fill); color: var(--danger); }
-.setting-row[data-output="red"] #led-state { color: var(--danger); font-weight: 600; }
-.setting-row[data-output="green"] .tile-icon { background: var(--success-fill); color: var(--success); }
-.setting-row[data-output="green"] #led-state { color: var(--success); font-weight: 600; }
+.setting-row:has(#fan-mode):is([data-pending-output="on"], [data-pending-output=""][data-output="on"]) .tile-icon,
+.setting-row:has(#buzzerMode-state):is([data-pending-output="on"], [data-pending-output=""][data-output="on"]) .tile-icon { background: var(--fan-active-fill); color: var(--fan-active); }
+.setting-row:has(#fan-mode):is([data-pending-output="on"], [data-pending-output=""][data-output="on"]) #fan-mode,
+.setting-row:has(#buzzerMode-state):is([data-pending-output="on"], [data-pending-output=""][data-output="on"]) #buzzerMode-state { color: var(--fan-active); font-weight: 600; }
+.setting-row:has(#led-state):is([data-pending-output="red"], [data-pending-output=""][data-output="red"]) .tile-icon { background: var(--danger-fill); color: var(--danger); }
+.setting-row:has(#led-state):is([data-pending-output="red"], [data-pending-output=""][data-output="red"]) #led-state { color: var(--danger); font-weight: 600; }
+.setting-row:has(#led-state):is([data-pending-output="green"], [data-pending-output=""][data-output="green"]) .tile-icon { background: var(--success-fill); color: var(--success); }
+.setting-row:has(#led-state):is([data-pending-output="green"], [data-pending-output=""][data-output="green"]) #led-state { color: var(--success); font-weight: 600; }
+.setting-row[data-pending-output="on"] .tile-icon, .setting-row[data-pending-output="red"] .tile-icon,
+.setting-row[data-pending-output="green"] .tile-icon { outline: 1px dashed currentColor; outline-offset: 2px; }
+@keyframes output-pulse { 50% { box-shadow: 0 0 0 5px transparent; } }
+.setting-row:has(#buzzerMode-state)[data-output="on"] .tile-icon,
+.setting-row:has(#led-state)[data-pending-output=""]:is([data-output="red"], [data-output="green"]) .tile-icon {
+  box-shadow: 0 0 0 1px currentColor; animation: output-pulse 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .setting-row:has(#buzzerMode-state)[data-output="on"] .tile-icon,
+  .setting-row:has(#led-state)[data-pending-output=""]:is([data-output="red"], [data-output="green"]) .tile-icon { animation: none; }
+}
 .command-status { padding: 12px 16px 6px; border-top: 1px solid var(--stroke); font-size: 13px; }
 #control-panel[data-sending="true"] .command-status { color: var(--text); }
 
@@ -286,7 +297,7 @@ form input[type="email"]:focus, form input[type="password"]:focus { outline: non
 
 /* Màn hình hẹp */
 @media (max-width: 1000px) {
-  .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 720px) {
   .shell { width: calc(100% - 32px); }
@@ -300,7 +311,6 @@ form input[type="email"]:focus, form input[type="password"]:focus { outline: non
   .connection-dot { order: 0; }
   .login { grid-template-columns: 1fr; padding: 20px; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .metric-grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }
   .setting-row { flex-wrap: wrap; }
   .setting-row .setting-text { flex-basis: calc(100% - 50px); }
   .setting-row > .segmented, .setting-row > .button { margin-left: 46px; }

@@ -52,12 +52,15 @@ def visual_state(page):
     return page.evaluate("""() => {
       const color = node => getComputedStyle(node).color;
       return {
-        fanCardIcon: color(document.querySelector('#fan-value').closest('.metric-card').querySelector('.tile-icon')),
         fanRow: color(document.querySelector('#fan-mode')),
         fanRowIcon: color(document.querySelector('#fan-mode').closest('.setting-row').querySelector('.tile-icon')),
         ledRow: color(document.querySelector('#led-state')),
         ledRowIcon: color(document.querySelector('#led-state').closest('.setting-row').querySelector('.tile-icon')),
-        fanAnimation: getComputedStyle(document.querySelector('#fan-value').closest('.metric-card').querySelector('.tile-icon svg')).animationName,
+        buzzerRow: color(document.querySelector('#buzzerMode-state')),
+        buzzerRowIcon: color(document.querySelector('#buzzerMode-state').closest('.setting-row').querySelector('.tile-icon')),
+        fanAnimation: getComputedStyle(document.querySelector('#fan-mode').closest('.setting-row').querySelector('.tile-icon svg')).animationName,
+        ledAnimation: getComputedStyle(document.querySelector('#led-state').closest('.setting-row').querySelector('.tile-icon')).animationName,
+        buzzerAnimation: getComputedStyle(document.querySelector('#buzzerMode-state').closest('.setting-row').querySelector('.tile-icon')).animationName,
       };
     }""")
 
@@ -106,34 +109,51 @@ def run_case(browser, url, width, font_name, font_css, theme, errors):
             compare(baseline, snapshot(page), f"{case}/{state}", errors)
             if visual_safe and state == "gas":
                 visual_gas = visual_state(page)
-                for key in ("fanCardIcon", "fanRow", "fanRowIcon", "ledRow", "ledRowIcon"):
+                for key in ("fanRow", "fanRowIcon", "ledRow", "ledRowIcon", "buzzerRow", "buzzerRowIcon"):
                     if visual_gas[key] == visual_safe[key]:
                         errors.append(f"{case}/{state}: {key} has no visible color change")
                 if visual_gas["fanAnimation"] == "none":
                     errors.append(f"{case}/{state}: spinning fan has no motion")
+                if visual_gas["ledAnimation"] == "none" or visual_gas["buzzerAnimation"] == "none":
+                    errors.append(f"{case}/{state}: active LED or buzzer has no motion")
             if visual_safe and state == "gas+flame":
                 combined = visual_state(page)
-                if combined["fanCardIcon"] != visual_safe["fanCardIcon"] or combined["fanAnimation"] != "none":
+                if combined["fanRowIcon"] != visual_safe["fanRowIcon"] or combined["fanAnimation"] != "none":
                     errors.append(f"{case}/{state}: stopped fan still looks active")
 
         page.locator("#fan-on").evaluate("button => button.click()")
         compare(baseline, snapshot(page), f"{case}/manual-fan", errors)
         if visual_safe:
             manual = visual_state(page)
-            if manual["fanCardIcon"] == visual_safe["fanCardIcon"] or manual["ledRow"] != visual_safe["ledRow"]:
+            if manual["fanRowIcon"] == visual_safe["fanRowIcon"] or manual["ledRow"] != visual_safe["ledRow"]:
                 errors.append(f"{case}/manual-fan: fan color did not change independently of LED")
             page.emulate_media(reduced_motion="reduce")
-            if visual_state(page)["fanAnimation"] != "none":
-                errors.append(f"{case}/manual-fan: fan motion ignores reduced-motion preference")
+            reduced = visual_state(page)
+            if reduced["fanAnimation"] != "none" or reduced["ledAnimation"] != "none":
+                errors.append(f"{case}/manual-fan: motion ignores reduced-motion preference")
         page.locator("#fan-off").evaluate("button => button.click()")
+
+        # Pending labels must fit in the existing control rows before any telemetry arrives.
+        pending = page.evaluate("""() => {
+          const ids = ['led-state', 'buzzerMode-state', 'fan-mode'];
+          return Object.fromEntries(ids.map(id => [id, document.getElementById(id).textContent]));
+        }""")
+        page.evaluate("""() => {
+          document.getElementById('led-state').textContent = 'Chờ chuyển xanh';
+          document.getElementById('buzzerMode-state').textContent = 'Chờ tự động';
+          document.getElementById('fan-mode').textContent = 'Chờ tự động';
+        }""")
+        compare(baseline, snapshot(page), f"{case}/pending-controls", errors)
+        page.evaluate("""originals => {
+          for (const [id, value] of Object.entries(originals)) document.getElementById(id).textContent = value;
+        }""", pending)
 
         # These live descriptions are currently absent from demo controls, so exercise their text lengths.
         originals = page.evaluate("() => Object.fromEntries([...document.querySelectorAll('.metric-card p')].map(p => [p.id, p.textContent]))")
         for state, replacements in (
             ("warmup", {"gas-alarm-detail": "MQ-2 đang làm nóng (~1 phút sau khi cấp nguồn)"}),
-            ("purge", {"fan-detail": "Thông gió thêm 3 giây sau khi hết gas"}),
             ("stale", {key: "Không có dữ liệu mới" for key in
-                       ("flame-detail", "gas-alarm-detail", "fan-detail")}),
+                       ("flame-detail", "gas-alarm-detail")}),
         ):
             page.evaluate("replacements => { for (const [id, value] of Object.entries(replacements)) document.getElementById(id).textContent = value; }", replacements)
             compare(baseline, snapshot(page), f"{case}/{state}", errors)

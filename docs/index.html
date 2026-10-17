@@ -10,8 +10,8 @@
   <title>Trạm giám sát an toàn</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1a1a'/%3E%3Cpath d='M16 6c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-5 3-6 0 2 1 3 2 3 0-3 0-6 1-9z' fill='%23fff'/%3E%3C/svg%3E">
   <script src="./theme.js?v=20261016-30"></script>
-  <link rel="stylesheet" href="./styles.css?v=20261017-8">
-  <script type="module" src="./app.js?v=20261017-4"></script>
+  <link rel="stylesheet" href="./styles.css?v=20261017-9">
+  <script type="module" src="./app.js?v=20261017-5"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -103,10 +103,9 @@
 
         <div id="overview-view" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
           <h2 class="section-title">Cảm biến</h2>
-          <section class="metric-grid" aria-label="Trạng thái cảm biến và thiết bị">
+          <section class="metric-grid" aria-label="Trạng thái cảm biến">
             <article class="metric-card card"><div class="metric-head"><span class="tile-icon"><svg aria-hidden="true"><use href="#i-flame"/></svg></span><h3>Ngọn lửa</h3></div><strong id="flame-value">—</strong><p id="flame-detail" class="subtle">Chưa có dữ liệu</p></article>
             <article class="metric-card card"><div class="metric-head"><span class="tile-icon"><svg aria-hidden="true"><use href="#i-gas"/></svg></span><h3>Khí gas</h3></div><strong id="gas-alarm-value">—</strong><p id="gas-alarm-detail" class="subtle">Chưa có dữ liệu</p></article>
-            <article class="metric-card card"><div class="metric-head"><span class="tile-icon"><svg aria-hidden="true"><use href="#i-fan"/></svg></span><h3>Quạt thông gió</h3></div><strong id="fan-value">—</strong><p id="fan-detail" class="subtle">Chưa có dữ liệu</p></article>
             <article class="metric-card card"><div class="metric-head"><span class="tile-icon"><svg aria-hidden="true"><use href="#i-temp"/></svg></span><h3>Nhiệt độ</h3></div><strong id="temperature-value">—</strong><p id="temperature-detail" class="subtle">Cảm biến DHT11</p></article>
             <article class="metric-card card"><div class="metric-head"><span class="tile-icon"><svg aria-hidden="true"><use href="#i-drop"/></svg></span><h3>Độ ẩm</h3></div><strong id="humidity-value">—</strong><p id="humidity-detail" class="subtle">Cảm biến DHT11</p></article>
           </section>
@@ -118,19 +117,19 @@
             <div class="setting-row">
               <span class="tile-icon"><svg aria-hidden="true"><use href="#i-bulb"/></svg></span>
               <div class="setting-text"><strong>LED hai màu</strong><small>Đỏ D22 · Xanh D23 · <span id="led-state">—</span></small></div>
-              <div class="segmented" role="group" aria-label="Chế độ LED hai màu"><button id="led-auto" class="segment" type="button" aria-pressed="false" disabled>Tự động</button><button id="led-red" class="segment" type="button" aria-pressed="false" disabled>Đỏ</button><button id="led-green" class="segment" type="button" aria-pressed="false" disabled>Xanh</button><button id="led-off" class="segment" type="button" aria-pressed="false" disabled>Tắt</button></div>
+              <div class="segmented" role="group" aria-label="Chế độ LED hai màu"><button id="led-red" class="segment" type="button" aria-pressed="false" disabled>Đỏ</button><button id="led-green" class="segment" type="button" aria-pressed="false" disabled>Xanh</button><button id="led-off" class="segment" type="button" aria-pressed="false" disabled>Tắt</button><button id="led-auto" class="segment" type="button" aria-pressed="false" disabled>Tự động</button></div>
             </div>
 
             <div class="setting-row">
               <span class="tile-icon"><svg aria-hidden="true"><use href="#i-speaker"/></svg></span>
               <div class="setting-text"><strong>Còi báo</strong><small>D13 · <span id="buzzerMode-state">—</span></small></div>
-              <div class="segmented" role="group" aria-label="Chế độ còi"><button id="buzzerMode-auto" class="segment" type="button" aria-pressed="false" disabled>Tự động</button><button id="buzzerMode-on" class="segment" type="button" aria-pressed="false" disabled>Bật</button><button id="buzzerMode-off" class="segment" type="button" aria-pressed="false" disabled>Tắt</button></div>
+              <div class="segmented" role="group" aria-label="Chế độ còi"><button id="buzzerMode-on" class="segment" type="button" aria-pressed="false" disabled>Bật</button><button id="buzzerMode-off" class="segment" type="button" aria-pressed="false" disabled>Tắt</button><button id="buzzerMode-auto" class="segment" type="button" aria-pressed="false" disabled>Tự động</button></div>
             </div>
 
             <div class="setting-row">
               <span class="tile-icon"><svg aria-hidden="true"><use href="#i-fan"/></svg></span>
               <div class="setting-text"><strong>Quạt thông gió</strong><small class="fan-mode-line">D32 · <span id="fan-mode">Chưa có trạng thái</span></small><small id="fan-description" class="setting-note">Gas tự bật quạt, hết gas chạy thêm 3 giây. Có lửa thì quạt dừng, kể cả khi đồng thời có gas.</small></div>
-              <div class="segmented" role="group" aria-label="Điều khiển quạt"><button id="fan-off" class="segment" type="button" aria-pressed="false" disabled>Tắt</button><button id="fan-on" class="segment" type="button" aria-pressed="false" disabled>Bật</button></div>
+              <div class="segmented" role="group" aria-label="Điều khiển quạt"><button id="fan-off" class="segment" type="button" aria-pressed="false" disabled>Tắt</button><button id="fan-on" class="segment" type="button" aria-pressed="false" disabled>Bật</button><button id="fan-auto" class="segment" type="button" aria-pressed="false" disabled>Tự động</button></div>
             </div>
 
             <div class="setting-row">

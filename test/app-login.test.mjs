@@ -6,6 +6,12 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   const html = await readFile(new URL('../docs/index.html', import.meta.url), 'utf8');
   assert.match(html, /id="fan-off"/);
   assert.match(html, /id="fan-on"/);
+  assert.match(html, /id="fan-auto"/);
+  assert.doesNotMatch(html.match(/<section class="metric-grid"[\s\S]*?<\/section>/)?.[0] ?? '', /Quạt thông gió/);
+  for (const ids of [['led-red', 'led-green', 'led-off', 'led-auto'], ['buzzerMode-on', 'buzzerMode-off', 'buzzerMode-auto'], ['fan-off', 'fan-on', 'fan-auto']]) {
+    const positions = ids.map(id => html.indexOf(`id="${id}"`));
+    assert.ok(positions.every((position, index) => index === 0 || positions[index - 1] < position), `${ids.join(', ')} must appear in visual order`);
+  }
   assert.doesNotMatch(html, /id="fan-(?:30|60|90|100)"/);
   const originals = new Map(['document', 'window', 'localStorage', 'setInterval', '__firebaseLoginTest']
     .map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -48,7 +54,8 @@ test('authenticated controls send atomic commands and await device acknowledgeme
       export const onValue = (reference, callback) => { const s = globalThis.__firebaseLoginTest;
         s.path = reference.path; s.reading = callback; return () => {}; };
       export const serverTimestamp = () => ({ '.sv': 'timestamp' });
-      export const update = async (reference, values) => { globalThis.__firebaseLoginTest.write = { path: reference.path, values }; };
+      export const update = async (reference, values) => { const state = globalThis.__firebaseLoginTest;
+        state.write = { path: reference.path, values }; if (state.blockWrite) await state.blockWrite; };
       export const set = async () => {};`
   };
   let source = await readFile(new URL('../docs/app.js', import.meta.url), 'utf8');
@@ -105,7 +112,8 @@ test('authenticated controls send atomic commands and await device acknowledgeme
     alarmLedOn: false, statusLedOn: true, buzzerOn: true, alarmLedMode: 'auto',
     statusLedMode: 'auto', buzzerMode: 'auto', muteUntil: 0, updatedAt: Date.now() };
   state.reading({ val: () => safe });
-  assert.equal(nodes.get('fan-value').dataset.output, 'off');
+  assert.equal(nodes.get('fan-mode').dataset.output, 'off');
+  assert.equal(nodes.get('fan-auto').attributes['aria-pressed'], 'true');
   assert.equal(nodes.get('led-state').dataset.output, 'green');
   assert.equal(nodes.get('temperature-value').textContent, '—');
   assert.match(nodes.get('temperature-detail').textContent, /D27/,
@@ -116,7 +124,7 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   state.reading({ val: () => ({ ...safe, temperatureC: 28.3, humidityPct: 64.2,
     updatedAt: Date.now() - 20_000 }) });
   assert.equal(nodes.get('connection-label').textContent, 'Chờ dữ liệu mới');
-  assert.equal(nodes.get('fan-value').dataset.output, 'unknown', 'stale fan data must not look active');
+  assert.equal(nodes.get('fan-mode').dataset.output, 'unknown', 'stale fan data must not look active');
   assert.equal(nodes.get('led-state').dataset.output, 'unknown', 'stale LED data must not keep its previous color');
   assert.equal(nodes.get('temperature-value').textContent, '—');
   assert.match(nodes.get('temperature-detail').textContent, /cũ/);
@@ -143,7 +151,7 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(nodes.get('fan-on').disabled, true, 'old PWM firmware must not accept an on/off web command');
   assert.match(nodes.get('fan-mode').textContent, /nạp firmware/);
   state.reading({ val: () => safe });
-  const fanValueNode = nodes.get('fan-value');
+  const fanValueNode = nodes.get('fan-mode');
   let fanValueWrites = 0;
   let fanValueText = fanValueNode.textContent;
   Object.defineProperty(fanValueNode, 'textContent', {
@@ -154,7 +162,14 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(fanValueWrites, 0, 'unchanged live telemetry must not rewrite visible card text');
   const button = nodes.get('buzzerMode-off');
   assert.equal(button?.disabled, false);
-  await button.listeners.click();
+  let releaseWrite;
+  state.blockWrite = new Promise(resolve => { releaseWrite = resolve; });
+  const buzzerClick = button.listeners.click();
+  assert.equal(nodes.get('buzzerMode-state').textContent, 'Chờ tắt', 'buzzer status updates before Firebase responds');
+  assert.equal(nodes.get('buzzerMode-state').dataset.pendingOutput, 'off');
+  releaseWrite();
+  await buzzerClick;
+  state.blockWrite = null;
   assert.equal(state.write.path, 'devices/esp32s-30p-01/commands');
   assert.equal(state.write.values.buzzerMode, 'off');
   assert.deepEqual([state.write.values.alarmLedMode, state.write.values.statusLedMode, state.write.values.fanOn],
@@ -171,7 +186,13 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   state.reading({ val: () => ({ ...safe, buzzerMode: 'off', buzzerOn: false,
     appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
   assert.match(nodes.get('command-status').textContent, /ESP32 đã áp dụng/);
-  await nodes.get('led-green').listeners.click();
+  state.blockWrite = new Promise(resolve => { releaseWrite = resolve; });
+  const ledClick = nodes.get('led-green').listeners.click();
+  assert.equal(nodes.get('led-state').textContent, 'Chờ chuyển xanh', 'LED status updates before Firebase responds');
+  assert.equal(nodes.get('led-state').dataset.pendingOutput, 'green');
+  releaseWrite();
+  await ledClick;
+  state.blockWrite = null;
   assert.deepEqual([state.write.values.alarmLedMode, state.write.values.statusLedMode], ['off', 'on']);
   assert.equal(nodes.get('led-state').textContent, 'Chờ chuyển xanh');
   assert.equal(nodes.get('led-green').attributes['aria-pressed'], 'true');
@@ -197,7 +218,13 @@ test('authenticated controls send atomic commands and await device acknowledgeme
     'older device acknowledgement must not undo the latest color choice');
   state.reading({ val: () => ({ ...safe, alarmLedMode: 'off', statusLedMode: 'on',
     statusLedOn: true, appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
-  await nodes.get('fan-on').listeners.click();
+  state.blockWrite = new Promise(resolve => { releaseWrite = resolve; });
+  const fanClick = nodes.get('fan-on').listeners.click();
+  assert.equal(nodes.get('fan-mode').textContent, 'Chờ bật', 'fan status updates before Firebase responds');
+  assert.equal(nodes.get('fan-mode').dataset.pendingOutput, 'on');
+  releaseWrite();
+  await fanClick;
+  state.blockWrite = null;
   assert.equal(state.write.values.fanOn, true);
   assert.equal('fanSpeedPct' in state.write.values, false);
   assert.deepEqual([state.write.values.alarmLedMode, state.write.values.statusLedMode], ['off', 'on'],
@@ -207,15 +234,14 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(nodes.get('fan-on').attributes['aria-pressed'], 'true');
   assert.equal(nodes.get('fan-off').attributes['aria-pressed'], 'false');
   assert.equal(nodes.get('fan-mode').textContent, 'Chờ bật');
-  assert.equal(nodes.get('fan-value').textContent, 'Chờ bật',
-    'the overview responds immediately without expanding the metric card while receipt is pending');
+  assert.equal(nodes.get('fan-mode').dataset.pendingOutput, 'on', 'pending fan command highlights the row immediately');
   await nodes.get('fan-off').listeners.click();
   assert.equal(state.write.values.fanOn, false);
   assert.equal('fanSpeedPct' in state.write.values, false);
   assert.equal(nodes.get('fan-on').attributes['aria-pressed'], 'false');
   assert.equal(nodes.get('fan-off').attributes['aria-pressed'], 'true');
   assert.equal(nodes.get('fan-mode').textContent, 'Chờ tắt');
-  assert.equal(nodes.get('fan-value').textContent, 'Chờ tắt');
+  assert.equal(nodes.get('fan-mode').dataset.pendingOutput, 'off');
   assert.notEqual(state.write.values.commandId, firstFanCommandId);
   state.reading({ val: () => ({ ...safe, fanOn: true,
     appliedCommandId: firstFanCommandId, updatedAt: Date.now() }) });
@@ -224,7 +250,14 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   state.reading({ val: () => ({ ...safe, fanOn: false,
     appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
   assert.match(nodes.get('command-status').textContent, /ESP32 đã áp dụng/);
-  assert.equal(nodes.get('fan-value').textContent, 'Đang tắt');
+  assert.equal(nodes.get('fan-mode').textContent, 'Đang tắt');
+  await nodes.get('fan-auto').listeners.click();
+  assert.equal(state.write.values.fanOn, false, 'automatic fan mode restores firmware safety control');
+  assert.equal(nodes.get('fan-auto').attributes['aria-pressed'], 'true');
+  assert.equal(nodes.get('fan-mode').textContent, 'Chờ tự động');
+  state.reading({ val: () => ({ ...safe, fanOn: false,
+    appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
+  assert.equal(nodes.get('fan-mode').textContent, 'Tự động · Đang tắt');
   assert.equal(nodes.has('fan-speed'), false, 'the speed slider is no longer used');
   await nodes.get('fan-on').listeners.click();
   assert.equal(state.write.values.fanOn, true);
@@ -232,7 +265,7 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(nodes.get('fan-on').attributes['aria-pressed'], 'true');
   state.reading({ val: () => ({ ...safe, fanOn: true,
     appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
-  assert.equal(nodes.get('fan-value').dataset.output, 'on', 'the overview reflects confirmed fan telemetry');
+  assert.equal(nodes.get('fan-mode').dataset.output, 'on', 'the row reflects confirmed fan telemetry');
   state.reading({ val: () => ({ ...safe, gasAlarm: true }) });
   assert.equal(nodes.get('fan-on').disabled, true, 'gas alarm takes priority over manual fan control');
   assert.equal(nodes.get('fan-off').disabled, true, 'gas alarm takes priority over manual fan control');
