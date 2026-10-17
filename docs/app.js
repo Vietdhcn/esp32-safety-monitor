@@ -222,6 +222,9 @@ function hienThi() {
   hienSoDo('fan-value', quatDangCho != null ?
     quatDangCho ? 'Chờ bật' : 'Chờ tắt' :
     duLieuQuaCu || duLieuThietBi.fanOn == null ? null : duLieuThietBi.fanOn ? 'Đang bật' : 'Đang tắt');
+  const trangThaiQuat = duLieuQuaCu || duLieuThietBi.fanOn == null ? 'unknown' : duLieuThietBi.fanOn ? 'on' : 'off';
+  $('fan-value').closest('.metric-card').dataset.output = trangThaiQuat;
+  $('fan-mode').closest('.setting-row').dataset.output = trangThaiQuat;
   hienSoDo('temperature-value', duLieuQuaCu || duLieuThietBi.temperatureC == null ? null : duLieuThietBi.temperatureC.toFixed(1), ' °C');
   hienSoDo('humidity-value', duLieuQuaCu || duLieuThietBi.humidityPct == null ? null : duLieuThietBi.humidityPct.toFixed(1), ' %');
   datChu('temperature-detail', duLieuQuaCu ? 'Dữ liệu cũ từ ESP32' :
@@ -288,8 +291,11 @@ function hienThiDieuKhien(duLieuQuaCu, coCanhBao) {
   const nhanDenDangCho = { auto: 'Chờ tự động', red: 'Chờ chuyển đỏ', green: 'Chờ chuyển xanh', off: 'Chờ tắt' };
   datChu('led-state', denDuocYeuCau ? nhanDenDangCho[denDuocYeuCau] :
     duLieuQuaCu || duLieuThietBi.alarmLedOn == null || duLieuThietBi.statusLedOn == null ? '—' :
-    dangTam ? 'Tạm tắt' : coCanhBao ? 'Đang cảnh báo đỏ' : duLieuThietBi.alarmLedOn ? 'Đang sáng đỏ' :
+    dangTam ? 'Tạm tắt' : duLieuThietBi.alarmLedOn ? coCanhBao ? 'Đang cảnh báo đỏ' : 'Đang sáng đỏ' :
     duLieuThietBi.statusLedOn ? 'Đang sáng xanh' : 'Đang tắt');
+  $('led-state').closest('.setting-row').dataset.output =
+    duLieuQuaCu || duLieuThietBi.alarmLedOn == null || duLieuThietBi.statusLedOn == null ? 'unknown' :
+      duLieuThietBi.alarmLedOn ? 'red' : duLieuThietBi.statusLedOn ? 'green' : 'off';
   for (const choice of ['auto', 'red', 'green', 'off']) {
     const button = $('led-' + choice);
     button.disabled = dangBan || !coTheDieuKhien(duLieuThietBi, 'ledMode');

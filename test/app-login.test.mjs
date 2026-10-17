@@ -16,7 +16,7 @@ test('authenticated controls send atomic commands and await device acknowledgeme
     }
   });
   const nodes = new Map();
-  const createNode = () => ({ hidden: false, style: {}, listeners: {}, value: '', checked: false, attributes: {}, children: [],
+  const createNode = () => ({ hidden: false, style: {}, dataset: {}, listeners: {}, value: '', checked: false, attributes: {}, children: [],
     classList: { toggle() {} }, closest() { return this; }, setAttribute(key, value) { this.attributes[key] = value; },
     contains(target) { return this === target; },
     addEventListener(event, callback) { this.listeners[event] = callback; },
@@ -105,6 +105,8 @@ test('authenticated controls send atomic commands and await device acknowledgeme
     alarmLedOn: false, statusLedOn: true, buzzerOn: true, alarmLedMode: 'auto',
     statusLedMode: 'auto', buzzerMode: 'auto', muteUntil: 0, updatedAt: Date.now() };
   state.reading({ val: () => safe });
+  assert.equal(nodes.get('fan-value').dataset.output, 'off');
+  assert.equal(nodes.get('led-state').dataset.output, 'green');
   assert.equal(nodes.get('temperature-value').textContent, '—');
   assert.match(nodes.get('temperature-detail').textContent, /D27/,
     'missing sensor data should point to the connected GPIO');
@@ -113,6 +115,8 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(nodes.get('humidity-value').textContent, '64.2 %');
   state.reading({ val: () => ({ ...safe, temperatureC: 28.3, humidityPct: 64.2,
     updatedAt: Date.now() - 20_000 }) });
+  assert.equal(nodes.get('fan-value').dataset.output, 'unknown', 'stale fan data must not look active');
+  assert.equal(nodes.get('led-state').dataset.output, 'unknown', 'stale LED data must not keep its previous color');
   assert.equal(nodes.get('temperature-value').textContent, '—');
   assert.match(nodes.get('temperature-detail').textContent, /cũ/);
   state.reading({ val: () => safe });
@@ -225,6 +229,7 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(nodes.get('fan-on').attributes['aria-pressed'], 'true');
   state.reading({ val: () => ({ ...safe, fanOn: true,
     appliedCommandId: state.write.values.commandId, updatedAt: Date.now() }) });
+  assert.equal(nodes.get('fan-value').dataset.output, 'on', 'the overview reflects confirmed fan telemetry');
   state.reading({ val: () => ({ ...safe, gasAlarm: true }) });
   assert.equal(nodes.get('fan-on').disabled, true, 'gas alarm takes priority over manual fan control');
   assert.equal(nodes.get('fan-off').disabled, true, 'gas alarm takes priority over manual fan control');

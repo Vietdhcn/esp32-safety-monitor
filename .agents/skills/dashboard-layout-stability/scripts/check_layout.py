@@ -14,7 +14,7 @@ except ImportError as exc:
 
 
 DOCS = Path(__file__).resolve().parents[4] / "docs"
-WIDTHS = (1280, 720, 480, 390, 381, 380, 320)
+WIDTHS = (1280, 720, 480, 390, 381, 380, 375, 320)
 FONTS = {
     "normal": "",
     # Recreates a browser minimum font size: line height grows while a 12px em reservation does not.
@@ -48,6 +48,20 @@ def snapshot(page):
     }""")
 
 
+def visual_state(page):
+    return page.evaluate("""() => {
+      const color = node => getComputedStyle(node).color;
+      return {
+        fanCardIcon: color(document.querySelector('#fan-value').closest('.metric-card').querySelector('.tile-icon')),
+        fanRow: color(document.querySelector('#fan-mode')),
+        fanRowIcon: color(document.querySelector('#fan-mode').closest('.setting-row').querySelector('.tile-icon')),
+        ledRow: color(document.querySelector('#led-state')),
+        ledRowIcon: color(document.querySelector('#led-state').closest('.setting-row').querySelector('.tile-icon')),
+        fanAnimation: getComputedStyle(document.querySelector('#fan-value').closest('.metric-card').querySelector('.tile-icon svg')).animationName,
+      };
+    }""")
+
+
 def compare(baseline, current, label, errors):
     for section in ("tabs", "grid", "title", "panel"):
         for dimension in ("top", "height"):
@@ -63,16 +77,18 @@ def compare(baseline, current, label, errors):
         errors.append(f"{label}: clipped descriptions {current['clippedDescriptions']}")
 
 
-def run_case(browser, url, width, font_name, font_css, errors):
+def run_case(browser, url, width, font_name, font_css, theme, errors):
     page = browser.new_page(viewport={"width": width, "height": 700})
-    case = f"{width}px/{font_name}"
+    case = f"{width}px/{font_name}/{theme}"
     try:
         page.goto(url, wait_until="networkidle")
         page.locator("#dashboard").wait_for(state="visible")
+        page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
         if font_css:
             page.add_style_tag(content=font_css)
         page.evaluate("window.scrollTo(0, 180)")
         baseline = snapshot(page)
+        visual_safe = visual_state(page) if width == 1280 and font_name == "normal" else None
         if baseline["overflow"] > TOLERANCE or baseline["clippedDescriptions"]:
             errors.append(f"{case}/safe: overflow or clipped text: {baseline}")
 
@@ -88,6 +104,28 @@ def run_case(browser, url, width, font_name, font_css, errors):
             if actual != expected:
                 errors.append(f"{case}/{state}: expected sensor labels {expected}, got {actual}")
             compare(baseline, snapshot(page), f"{case}/{state}", errors)
+            if visual_safe and state == "gas":
+                visual_gas = visual_state(page)
+                for key in ("fanCardIcon", "fanRow", "fanRowIcon", "ledRow", "ledRowIcon"):
+                    if visual_gas[key] == visual_safe[key]:
+                        errors.append(f"{case}/{state}: {key} has no visible color change")
+                if visual_gas["fanAnimation"] == "none":
+                    errors.append(f"{case}/{state}: spinning fan has no motion")
+            if visual_safe and state == "gas+flame":
+                combined = visual_state(page)
+                if combined["fanCardIcon"] != visual_safe["fanCardIcon"] or combined["fanAnimation"] != "none":
+                    errors.append(f"{case}/{state}: stopped fan still looks active")
+
+        page.locator("#fan-on").evaluate("button => button.click()")
+        compare(baseline, snapshot(page), f"{case}/manual-fan", errors)
+        if visual_safe:
+            manual = visual_state(page)
+            if manual["fanCardIcon"] == visual_safe["fanCardIcon"] or manual["ledRow"] != visual_safe["ledRow"]:
+                errors.append(f"{case}/manual-fan: fan color did not change independently of LED")
+            page.emulate_media(reduced_motion="reduce")
+            if visual_state(page)["fanAnimation"] != "none":
+                errors.append(f"{case}/manual-fan: fan motion ignores reduced-motion preference")
+        page.locator("#fan-off").evaluate("button => button.click()")
 
         # These live descriptions are currently absent from demo controls, so exercise their text lengths.
         originals = page.evaluate("() => Object.fromEntries([...document.querySelectorAll('.metric-card p')].map(p => [p.id, p.textContent]))")
@@ -126,7 +164,9 @@ def main():
                 url = f"http://127.0.0.1:{server.server_port}/?demo=1"
                 for width in WIDTHS:
                     for font_name, font_css in FONTS.items():
-                        run_case(browser, url, width, font_name, font_css, errors)
+                        run_case(browser, url, width, font_name, font_css, "light", errors)
+                for width in (1280, 390):
+                    run_case(browser, url, width, "normal", "", "dark", errors)
             finally:
                 browser.close()
     except Exception as exc:
@@ -137,7 +177,7 @@ def main():
         thread.join()
     if errors:
         raise SystemExit("Layout regression detected:\n" + "\n".join(errors))
-    print(f"PASS: {len(WIDTHS) * len(FONTS)} viewport/font combinations; safe, gas, flame, combined, warmup, purge, stale, and notice states")
+    print(f"PASS: {len(WIDTHS) * len(FONTS) + 2} viewport/font/theme combinations; safety states, manual fan, LED colors, reduced motion, and stable layout")
 
 
 if __name__ == "__main__":
