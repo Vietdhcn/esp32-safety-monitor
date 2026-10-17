@@ -335,17 +335,28 @@ int firebaseRequest(const String& url, const char* method, const String& body, S
     clientsReady = true;
   }
   WiFiClientSecure& client = keepAlive ? databaseClient : authClient;
+  const bool connectedBefore = client.connected();
   HTTPClient http;
   http.setReuse(keepAlive);
   if (!http.begin(client, url)) return -1;
   http.setTimeout(3500);
   if (strcmp(method, "GET") != 0) http.addHeader("Content-Type", "application/json");
   int status = -1;
+  const uint32_t requestAt = millis();
   if (strcmp(method, "POST") == 0) status = http.POST(body);
   else if (strcmp(method, "PUT") == 0) status = http.PUT(body);
   else status = http.GET();
-  if (status > 0) response = http.getString();
+  const uint32_t headersAt = millis();
+  // Firebase print=silent tra 204 khong co body; getString() co the cho dong socket ~75 giay.
+  if (status > 0 && status != HTTP_CODE_NO_CONTENT) response = http.getString();
+  const uint32_t bodyAt = millis();
   http.end();
+  if (keepAlive) {
+    Serial.printf("RTDB link before=%d after=%d headers=%lu body=%lu ms\n",
+                  connectedBefore, client.connected(),
+                  static_cast<unsigned long>(headersAt - requestAt),
+                  static_cast<unsigned long>(bodyAt - headersAt));
+  }
   if (!keepAlive || status <= 0) client.stop();  // Loi mang: lan sau mo ket noi moi.
   return status;
 }
@@ -558,11 +569,11 @@ bool sendFirebaseData(const DeviceState& current) {
   serializeJson(data, body);
   String response;
   const uint32_t startedAt = millis();
-  const int status = firebaseRequest(firebasePath("telemetry"), "PUT", body, response, true);
+  const int status = firebaseRequest(firebasePath("telemetry") + "&print=silent", "PUT", body, response, true);
   Serial.printf("Telemetry PUT HTTP %d took %lu ms\n", status,
                 static_cast<unsigned long>(millis() - startedAt));
-  if (status != 200) Serial.printf("Firebase telemetry HTTP %d\n", status);
-  return status == 200;
+  if (status != 204) Serial.printf("Firebase telemetry HTTP %d\n", status);
+  return status == 204;
 }
 
 void firebaseTask(void*) {
