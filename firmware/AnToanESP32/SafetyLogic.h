@@ -12,8 +12,8 @@ constexpr int MODE_OFF = 2;
 constexpr uint32_t FLAME_CONFIRM_MS = 200;          // DO lua phai giu LOW lien tuc truoc khi bao.
 constexpr uint32_t FLAME_CONFIRM_FAN_MS = 1000;     // Lau hon khi quat dang chay hoac vua doi trang thai.
 constexpr uint32_t FLAME_RELEASE_MS = 1500;         // Giu canh bao toi thieu, tranh coi keu ngat quang.
-constexpr uint32_t GAS_CONFIRM_MS = 200;
-constexpr uint32_t GAS_RELEASE_MS = 2000;
+constexpr uint32_t GAS_CONFIRM_MS = 100;
+constexpr uint32_t GAS_RELEASE_MS = 200;
 constexpr uint32_t FAN_SWITCH_GUARD_MS = 2000;      // Khoang nhieu nguon sau khi quat bat/tat.
 constexpr uint32_t FAN_PURGE_MS = 3000;             // Quat chay them 3 giay sau khi het gas.
 constexpr uint32_t GAS_WARMUP_MS = 60000;           // MQ-2 can lam nong sau khi cap nguon.
@@ -46,7 +46,7 @@ struct DebouncedInput {
   uint32_t glitches = 0;       // So xung bao gia bi loai (len canh bao roi tro lai qua nhanh).
 
   // Tra ve true khi trang thai da xac nhan vua thay doi.
-  bool update(bool raw, uint32_t nowMs, uint32_t confirmMs, uint32_t releaseMs) {
+  constexpr bool update(bool raw, uint32_t nowMs, uint32_t confirmMs, uint32_t releaseMs) {
     if (raw != candidate) {
       if (candidate && !state) ++glitches;
       candidate = raw;

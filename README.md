@@ -90,8 +90,8 @@ Chạy `nap-esp32.bat` tại thư mục gốc sau khi đã cài board core, thư
 
 ## Hành vi cảnh báo và dashboard
 
-- ESP32 đọc DO lửa/gas khoảng mỗi 20 ms và lọc xung ngắn; DHT11 được đọc mỗi 2,5 giây. Trạng thái được gửi lên Firebase khoảng mỗi 2 giây và khi có thay đổi.
-- An toàn: LED xanh sáng. Có lửa hoặc gas: LED đỏ sáng, còi kêu liên tục. Gas tự bật quạt; khi hết gas đã xác nhận, quạt thông gió thêm 3 giây. Có lửa thì quạt dừng ngay, kể cả khi đồng thời có gas. Bộ lọc giữ báo gas thêm 2 giây sau khi DO hết báo để tránh nhiễu, nên tổng thời gian từ lúc DO hết báo đến khi quạt dừng có thể khoảng 5 giây.
+- ESP32 đọc DO lửa/gas khoảng mỗi 20 ms và lọc xung ngắn; DHT11 được đọc mỗi 2,5 giây. Khi trạng thái đổi, firmware gửi telemetry ngay; nếu không đổi, nó làm mới dữ liệu mỗi 5 giây.
+- An toàn: LED xanh sáng. Có lửa hoặc gas: LED đỏ sáng, còi kêu liên tục. Gas tự bật quạt; khi hết gas đã xác nhận, quạt thông gió thêm 3 giây. Có lửa thì quạt dừng ngay, kể cả khi đồng thời có gas. Tín hiệu DO gas phải ổn định 100 ms để báo và 200 ms để xác nhận an toàn; từ lúc DO hết báo đến khi quạt dừng sẽ khoảng 3,2 giây nếu tín hiệu ổn định.
 - Web cho chọn LED **Tự động / Đỏ / Xanh / Tắt**, còi **Tự động / Bật / Tắt**, quạt **Bật / Tắt**. Trong cảnh báo, LED đỏ và còi được ưu tiên. Nút **Tắt tiếng còi 30 giây** chỉ tắt còi; LED, quạt và cảm biến vẫn hoạt động.
 - Web khóa lệnh nếu telemetry cũ hơn 15 giây. Sau khi gửi, web chờ ESP32 xác nhận bằng `appliedCommandId`; quá 20 giây chưa xác nhận sẽ báo lỗi. ESP32 bỏ qua lệnh cũ còn trên Firebase sau khi khởi động lại.
 - Tab **Lịch sử** lưu tối đa 100 mục trong `localStorage` của từng trình duyệt, tách theo tài khoản và thiết bị. Lịch sử này không được lưu trên Firebase. Tùy chọn **Ghi nhớ đăng nhập** giữ phiên Firebase sau khi đóng trình duyệt; trang không lưu mật khẩu trong `localStorage`.

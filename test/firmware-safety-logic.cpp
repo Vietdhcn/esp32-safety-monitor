@@ -1,9 +1,33 @@
 // Kiem thu logic an toan cua firmware tren may tinh: g++ -std=c++17 test/firmware-safety-logic.cpp
 #include "../firmware/AnToanESP32/SafetyLogic.h"
 #include "../firmware/AnToanESP32/DhtSample.h"
+#include "../firmware/AnToanESP32/TelemetryTiming.h"
 
 #include <cstdio>
 #include <cstring>
+
+static_assert(GAS_CONFIRM_MS <= 100, "Gas alarm must confirm within 100 ms");
+static_assert(GAS_RELEASE_MS <= 200, "Gas safe state must confirm within 200 ms");
+constexpr bool gasTransitionsWithinBudget() {
+  DebouncedInput gas;
+  for (uint32_t ms = 0; ms <= 100; ms += 20)
+    gas.update(true, ms, GAS_CONFIRM_MS, GAS_RELEASE_MS);
+  if (!gas.state) return false;
+  for (uint32_t ms = 120; ms <= 320; ms += 20)
+    gas.update(false, ms, GAS_CONFIRM_MS, GAS_RELEASE_MS);
+  return !gas.state;
+}
+static_assert(gasTransitionsWithinBudget(), "The actual gas filter must switch within its time budget");
+static_assert(telemetrySendDue(8, 7, 1001, 1000, false, 1000),
+              "A changed alarm must send immediately after a successful heartbeat");
+static_assert(!telemetrySendDue(7, 7, 4999, 0, false, 0),
+              "An unchanged heartbeat should wait five seconds");
+static_assert(telemetrySendDue(7, 7, 5000, 0, false, 0),
+              "An unchanged device must still refresh telemetry");
+static_assert(!telemetrySendDue(8, 7, 1300, 1000, true, 1000),
+              "Failed requests should back off");
+static_assert(telemetrySendDue(8, 7, 1500, 1000, true, 1000),
+              "A failed request should retry after 500 ms");
 
 static int failures = 0;
 #define CHECK(cond) do { if (!(cond)) { std::printf("FAIL line %d: %s\n", __LINE__, #cond); ++failures; } } while (0)
@@ -17,6 +41,17 @@ static SafetyOutputs decide(bool flame, bool gas, bool manualFan = false, bool m
 }
 
 int main() {
+  // Trang thai gas len va xuong trong khoang duoi 1 giay truoc khi gui len cloud.
+  DebouncedInput gasInput;
+  for (uint32_t ms = 0; ms < 100; ms += 20) gasInput.update(true, ms, GAS_CONFIRM_MS, GAS_RELEASE_MS);
+  CHECK(!gasInput.state);
+  gasInput.update(true, 100, GAS_CONFIRM_MS, GAS_RELEASE_MS);
+  CHECK(gasInput.state);
+  for (uint32_t ms = 120; ms < 320; ms += 20) gasInput.update(false, ms, GAS_CONFIRM_MS, GAS_RELEASE_MS);
+  CHECK(gasInput.state);
+  gasInput.update(false, 320, GAS_CONFIRM_MS, GAS_RELEASE_MS);
+  CHECK(!gasInput.state);
+
   // Mot xung LOW ngan (nhieu nguon khi quat khoi dong) khong duoc thanh canh bao lua.
   DebouncedInput flame;
   uint32_t t = 0;

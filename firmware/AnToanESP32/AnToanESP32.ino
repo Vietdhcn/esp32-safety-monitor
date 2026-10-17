@@ -3,6 +3,7 @@
 #include "DhtSample.h"
 #include "SafetyLogic.h"
 #include "Sensors.h"
+#include "TelemetryTiming.h"
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -19,7 +20,6 @@ constexpr uint64_t MUTE_DURATION_MS = 30000ULL;
 constexpr unsigned long SENSOR_INTERVAL_MS = 20;
 constexpr unsigned long DHT_INTERVAL_MS = 2500;
 constexpr unsigned long LOG_INTERVAL_MS = 5000;
-constexpr unsigned long SEND_INTERVAL_MS = 2000;
 constexpr unsigned long COMMAND_INTERVAL_MS = 500;
 constexpr int FIRMWARE_LOGIC_VERSION = 4;  // Uu tien bao lua hon quạt va thong gio them 3 giay.
 
@@ -51,6 +51,7 @@ struct DeviceState {
   bool gasWarmup = true;
   bool flameNoise = false;
   uint32_t flameGlitches = 0;
+  uint32_t alarmEdgeAtMs = 0;  // Thoi diem DO bat dau doi; chi dung de do tre, khong gui len Firebase.
   char commandId[65] = "";
 };
 
@@ -133,6 +134,7 @@ void sensorTask(void*) {
   bool noiseActive = false;
   uint32_t noiseUntil = 0;
   uint32_t seenGlitches = 0;
+  uint32_t lastAlarmEdgeAtMs = 0;
   unsigned long lastDhtReadAt = 0;
   unsigned long lastLogAt = 0;
 
@@ -156,6 +158,8 @@ void sensorTask(void*) {
     const bool gasChanged = gasInput.update(rawGas, nowMs, GAS_CONFIRM_MS, GAS_RELEASE_MS);
     const bool flame = flameInput.state;
     const bool gas = gasInput.state;
+    if (flameChanged || gasChanged)
+      lastAlarmEdgeAtMs = gasChanged ? gasInput.candidateSince : flameInput.candidateSince;
 
     // 3. Thong gio them sau khi het gas; dung ngay neu co lua.
     purge.update(gasChanged && !gas, gas, flame, nowMs);
@@ -230,6 +234,7 @@ void sensorTask(void*) {
     next.gasWarmup = nowMs < GAS_WARMUP_MS;
     next.flameNoise = noiseActive;
     next.flameGlitches = flameInput.glitches;
+    next.alarmEdgeAtMs = lastAlarmEdgeAtMs;
     strlcpy(next.commandId, command.commandId, sizeof(next.commandId));
 
     bool changed;
@@ -552,7 +557,10 @@ bool sendFirebaseData(const DeviceState& current) {
   String body;
   serializeJson(data, body);
   String response;
+  const uint32_t startedAt = millis();
   const int status = firebaseRequest(firebasePath("telemetry"), "PUT", body, response, true);
+  Serial.printf("Telemetry PUT HTTP %d took %lu ms\n", status,
+                static_cast<unsigned long>(millis() - startedAt));
   if (status != 200) Serial.printf("Firebase telemetry HTTP %d\n", status);
   return status == 200;
 }
@@ -562,8 +570,10 @@ void firebaseTask(void*) {
   uint32_t lastSentVersion = UINT32_MAX;
   unsigned long lastSendAt = 0;
   unsigned long lastSendTryAt = 0;
+  bool lastSendFailed = false;
   unsigned long lastCommandReadAt = 0;
   unsigned long lastSignInTryAt = 0;
+  uint32_t lastPublishedAlarmEdgeAtMs = 0;
   for (;;) {
     if (WiFi.status() == WL_CONNECTED && time(nullptr) > 1700000000) {
       bool signedIn = firebaseToken.length() && millis() - lastSignInAt < 45UL * 60UL * 1000UL;
@@ -579,12 +589,19 @@ void firebaseTask(void*) {
         version = dataVersion;
         current = deviceState;
         portEXIT_CRITICAL(&stateLock);
-        if ((version != lastSentVersion || nowMs - lastSendAt >= SEND_INTERVAL_MS) &&
-            (lastSendTryAt == 0 || nowMs - lastSendTryAt >= 300)) {
+        if (telemetrySendDue(version, lastSentVersion, nowMs, lastSendAt,
+                             lastSendFailed, lastSendTryAt)) {
           lastSendTryAt = nowMs;
-          if (sendFirebaseData(current)) {
+          lastSendFailed = !sendFirebaseData(current);
+          if (!lastSendFailed) {
             lastSentVersion = version;
             lastSendAt = millis();
+            if (current.alarmEdgeAtMs != 0 && current.alarmEdgeAtMs != lastPublishedAlarmEdgeAtMs) {
+              lastPublishedAlarmEdgeAtMs = current.alarmEdgeAtMs;
+              Serial.printf("Alarm cloud ack gas=%d flame=%d raw-to-ack=%lu ms\n",
+                            current.gas, current.flame,
+                            static_cast<unsigned long>(millis() - current.alarmEdgeAtMs));
+            }
           }
         }
         if (!commandStreamActive && millis() - lastCommandReadAt >= COMMAND_INTERVAL_MS) {
