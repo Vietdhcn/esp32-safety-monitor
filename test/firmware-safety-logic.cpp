@@ -18,16 +18,22 @@ constexpr bool gasTransitionsWithinBudget() {
   return !gas.state;
 }
 static_assert(gasTransitionsWithinBudget(), "The actual gas filter must switch within its time budget");
-static_assert(telemetrySendDue(8, 7, 1001, 1000, false, 1000),
-              "A changed alarm must send immediately after a successful heartbeat");
+static_assert(!telemetrySendDue(8, 7, 1001, 1000, false, 1000),
+              "Rapid noncritical changes should wait instead of flooding Firebase");
+static_assert(telemetrySendDue(8, 7, 2000, 1000, false, 1000),
+              "A control change must publish after at most one second");
+static_assert(telemetrySendDue(8, 7, 1001, 1000, false, 1000, true),
+              "A changed alarm must bypass the control rate limit");
+static_assert(telemetrySendDue(8, UINT32_MAX, 100, 0, false, 0),
+              "The first telemetry sample must publish immediately");
 static_assert(!telemetrySendDue(7, 7, 4999, 0, false, 0),
               "An unchanged heartbeat should wait five seconds");
 static_assert(telemetrySendDue(7, 7, 5000, 0, false, 0),
               "An unchanged device must still refresh telemetry");
 static_assert(!telemetrySendDue(8, 7, 1300, 1000, true, 1000),
               "Failed requests should back off");
-static_assert(telemetrySendDue(8, 7, 1500, 1000, true, 1000),
-              "A failed request should retry after 500 ms");
+static_assert(telemetrySendDue(8, 7, 1500, 1000, true, 1000, true),
+              "An alarm request should retry after 500 ms");
 
 static int failures = 0;
 #define CHECK(cond) do { if (!(cond)) { std::printf("FAIL line %d: %s\n", __LINE__, #cond); ++failures; } } while (0)

@@ -81,6 +81,8 @@ struct SafetyOutputs {
 };
 
 // Co lua thi dung quat, ke ca khi dong thoi co gas, de khong thoi them oxy.
+
+
 constexpr SafetyOutputs decideOutputs(const SafetyInputs& in) {
   const bool alarm = in.flame || in.gas;
   SafetyOutputs out;

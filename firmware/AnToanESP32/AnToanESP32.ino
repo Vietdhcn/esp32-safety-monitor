@@ -20,7 +20,6 @@ constexpr uint64_t MUTE_DURATION_MS = 30000ULL;
 constexpr unsigned long SENSOR_INTERVAL_MS = 20;
 constexpr unsigned long DHT_INTERVAL_MS = 2500;
 constexpr unsigned long LOG_INTERVAL_MS = 5000;
-constexpr unsigned long COMMAND_INTERVAL_MS = 500;
 constexpr int FIRMWARE_LOGIC_VERSION = 4;  // Uu tien bao lua hon quạt va thong gio them 3 giay.
 
 Sensors sensors;
@@ -271,7 +270,6 @@ unsigned long lastSignInAt = 0;
 SemaphoreHandle_t commandMutex = nullptr;  // Hai task cung co the ap dung lenh.
 String lastCommandId;
 bool commandsInitialized = false;
-volatile bool commandStreamActive = false;
 char commandStreamToken[2048] = "";
 uint32_t commandStreamGeneration = 0;
 portMUX_TYPE commandStreamTokenLock = portMUX_INITIALIZER_UNLOCKED;
@@ -333,7 +331,8 @@ const char* modeName(int value) {
 
 // HTTPS co kiem tra chung chi. Ket noi toi Realtime Database duoc giu lai (keep-alive)
 // de khong phai bat tay TLS moi 2 giay; ket noi dang nhap dung xong thi dong.
-int firebaseRequest(const String& url, const char* method, const String& body, String& response, bool keepAlive) {
+int firebaseRequest(const String& url, const char* method, const String& body, String& response,
+                    bool keepAlive, WiFiClientSecure* dedicatedClient = nullptr) {
   static WiFiClientSecure authClient;
   static WiFiClientSecure databaseClient;
   static bool clientsReady = false;
@@ -345,7 +344,7 @@ int firebaseRequest(const String& url, const char* method, const String& body, S
     databaseClient.setHandshakeTimeout(6);
     clientsReady = true;
   }
-  WiFiClientSecure& client = keepAlive ? databaseClient : authClient;
+  WiFiClientSecure& client = dedicatedClient ? *dedicatedClient : (keepAlive ? databaseClient : authClient);
   const bool connectedBefore = client.connected();
   HTTPClient http;
   http.setReuse(keepAlive);
@@ -444,14 +443,24 @@ void applyFirebaseCommand(JsonVariantConst value) {
   xSemaphoreGive(commandMutex);
 }
 
-void readFirebaseCommand() {
+void readFirebaseCommand(const char* token) {
+  static WiFiClientSecure pollClient;
+  static bool clientReady = false;
+  if (!clientReady) {
+    pollClient.useBuiltinCACertBundle();
+    pollClient.setHandshakeTimeout(6);
+    clientReady = true;
+  }
   String response;
-  const int status = firebaseRequest(firebasePath("commands"), "GET", "", response, true);
+  const String url = databaseBaseUrl() + "/devices/" + DEVICE_ID + "/commands.json?auth=" + token;
+  const uint32_t startedAt = millis();
+  const int status = firebaseRequest(url, "GET", "", response, false, &pollClient);
+  Serial.printf("Command fallback GET HTTP %d took %lu ms\n", status,
+                static_cast<unsigned long>(millis() - startedAt));
   if (status != 200) {
     Serial.printf("Firebase commands HTTP %d\n", status);
     return;
   }
-  if (commandStreamActive) return;
   JsonDocument value;
   if (deserializeJson(value, response) == DeserializationError::Ok) {
     applyFirebaseCommand(value.as<JsonVariantConst>());
@@ -478,6 +487,8 @@ void commandStreamTask(void*) {
     streamClient.setHandshakeTimeout(6);
     HTTPClient streamHttp;
     if (!streamHttp.begin(streamClient, url)) {
+      streamClient.stop();
+      readFirebaseCommand(token);
       vTaskDelay(pdMS_TO_TICKS(1000));
       continue;
     }
@@ -488,7 +499,6 @@ void commandStreamTask(void*) {
     const int status = streamHttp.GET();
     if (status == 200) {
       Serial.println("Firebase command stream connected");
-      commandStreamActive = true;
       JsonDocument commandCache;
       String eventName;
       String eventData;
@@ -540,9 +550,9 @@ void commandStreamTask(void*) {
     } else {
       Serial.printf("Firebase command stream HTTP %d\n", status);
     }
-    commandStreamActive = false;
     streamHttp.end();
     streamClient.stop();
+    if (WiFi.status() == WL_CONNECTED) readFirebaseCommand(token);
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
@@ -600,7 +610,6 @@ void firebaseTask(void*) {
   unsigned long lastSendAt = 0;
   unsigned long lastSendTryAt = 0;
   bool lastSendFailed = false;
-  unsigned long lastCommandReadAt = 0;
   unsigned long lastSignInTryAt = 0;
   unsigned long lastWifiRecoveryAt = 0;
   unsigned long lastWifiScanAt = millis();
@@ -626,8 +635,10 @@ void firebaseTask(void*) {
         version = dataVersion;
         current = deviceState;
         portEXIT_CRITICAL(&stateLock);
+        const bool alarmChanged = current.alarmEdgeAtMs != 0 &&
+            current.alarmEdgeAtMs != lastPublishedAlarmEdgeAtMs;
         if (telemetrySendDue(version, lastSentVersion, nowMs, lastSendAt,
-                             lastSendFailed, lastSendTryAt)) {
+                             lastSendFailed, lastSendTryAt, alarmChanged)) {
           lastSendTryAt = nowMs;
           const int telemetryStatus = sendFirebaseData(current);
           lastSendFailed = telemetryStatus != 204;
@@ -660,11 +671,6 @@ void firebaseTask(void*) {
                             static_cast<unsigned long>(millis() - current.alarmEdgeAtMs));
             }
           }
-        }
-        if (WiFi.status() == WL_CONNECTED && !commandStreamActive &&
-            millis() - lastCommandReadAt >= COMMAND_INTERVAL_MS) {
-          readFirebaseCommand();
-          lastCommandReadAt = millis();
         }
       }
     }

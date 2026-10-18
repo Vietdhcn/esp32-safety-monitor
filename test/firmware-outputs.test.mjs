@@ -36,6 +36,17 @@ test('safety task runs on core 1 with a watchdog, and commands are serialized', 
   assert.match(source, /xSemaphoreTake\(commandMutex/);
 });
 
+test('a stalled fallback command read cannot block the telemetry task', async () => {
+  const source = await read('AnToanESP32.ino');
+  const telemetryTask = source.split('void firebaseTask(void*) {')[1]?.split('\nvoid setup()')[0];
+  const streamTask = source.split('void commandStreamTask(void*) {')[1]?.split('\nint sendFirebaseData(')[0];
+  assert.ok(telemetryTask && streamTask, 'both network tasks exist');
+  assert.doesNotMatch(telemetryTask, /readFirebaseCommand\s*\(/,
+    'HTTP command polling must not postpone telemetry heartbeats');
+  assert.match(streamTask, /readFirebaseCommand\s*\(/,
+    'the command task still polls when its event stream is unavailable');
+});
+
 test('temporary mute only silences the buzzer', async () => {
   const logic = await read('SafetyLogic.h');
   assert.match(logic, /out\.buzzer\s*=\s*!in\.buzzerMuted/);
