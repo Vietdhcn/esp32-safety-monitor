@@ -14,7 +14,7 @@ except ImportError as exc:
 
 
 DOCS = Path(__file__).resolve().parents[4] / "docs"
-WIDTHS = (1280, 720, 480, 390, 381, 380, 375, 320)
+WIDTHS = (1280, 720, 480, 390, 381, 380, 375, 360, 340, 320)
 FONTS = {
     "normal": "",
     # Recreates a browser minimum font size: line height grows while a 12px em reservation does not.
@@ -65,6 +65,57 @@ def visual_state(page):
     }""")
 
 
+def button_geometry(page, selector):
+    return page.eval_on_selector_all(selector, """buttons => buttons.map(button => {
+      const rect = button.getBoundingClientRect();
+      return {x: rect.x, y: rect.y + scrollY, width: rect.width, height: rect.height};
+    })""")
+
+
+def check_button_geometry(page, selector, button_ids, case, errors):
+    baseline = button_geometry(page, selector)
+    for button_id in button_ids:
+        button = page.locator(f"#{button_id}")
+        if button.is_disabled():
+            errors.append(f"{case}/{button_id}: button is disabled; selection was not tested")
+            continue
+        button.evaluate("button => button.click()")
+        selected_attribute = 'aria-selected' if button_id.startswith('tab-') else 'aria-pressed'
+        if button.get_attribute(selected_attribute) != 'true':
+            errors.append(f"{case}/{button_id}: selection did not change")
+        current = button_geometry(page, selector)
+        for index, (before, after) in enumerate(zip(baseline, current)):
+            for dimension in ("x", "y", "width", "height"):
+                delta = after[dimension] - before[dimension]
+                if abs(delta) > TOLERANCE:
+                    errors.append(f"{case}/{button_id}: button {index} {dimension} moved {delta:+.1f}px")
+
+
+def check_sending_visuals(page, case, errors):
+    # A Firebase write temporarily disables controls; unrelated buttons should not flash.
+    result = page.evaluate("""() => {
+      const panel = document.getElementById('control-panel');
+      const buttons = [...panel.querySelectorAll('button')];
+      const available = buttons.filter(button => !button.disabled);
+      const before = buttons.map(button => getComputedStyle(button).opacity);
+      panel.dataset.sending = 'true';
+      available.forEach(button => {
+        button.dataset.commandLocked = 'true';
+        button.disabled = true;
+      });
+      const after = buttons.map(button => getComputedStyle(button).opacity);
+      available.forEach(button => {
+        button.disabled = false;
+        delete button.dataset.commandLocked;
+      });
+      panel.dataset.sending = 'false';
+      return buttons.map((button, index) => ({id: button.id, before: before[index], after: after[index]}));
+    }""")
+    for item in result:
+        if item['after'] != item['before']:
+            errors.append(f"{case}/{item['id']}: opacity flashes from {item['before']} to {item['after']} while sending")
+
+
 def compare(baseline, current, label, errors):
     for section in ("tabs", "grid", "title", "panel"):
         for dimension in ("top", "height"):
@@ -96,6 +147,7 @@ def run_case(browser, url, width, font_name, font_css, theme, errors):
         visual_safe = visual_state(page) if width == 1280 and font_name == "normal" else None
         if baseline["overflow"] > TOLERANCE or baseline["clippedDescriptions"]:
             errors.append(f"{case}/safe: overflow or clipped text: {baseline}")
+        check_sending_visuals(page, case, errors)
 
         # Click through the demo's actual state transitions, without Playwright scrolling to buttons.
         for state, button, expected in (
@@ -134,6 +186,21 @@ def run_case(browser, url, width, font_name, font_css, theme, errors):
             if reduced["fanAnimation"] != "none" or reduced["ledAnimation"] != "none":
                 errors.append(f"{case}/manual-fan: motion ignores reduced-motion preference")
         page.locator("#fan-off").evaluate("button => button.click()")
+
+        # Selecting a mode must not move its siblings or resize the button group.
+        for group, ids in (
+            ('Chế độ LED hai màu', ('led-red', 'led-green', 'led-off', 'led-auto')),
+            ('Chế độ còi', ('buzzerMode-on', 'buzzerMode-off', 'buzzerMode-auto')),
+            ('Điều khiển quạt', ('fan-off', 'fan-on', 'fan-auto')),
+        ):
+            check_button_geometry(page, f'.segmented[aria-label="{group}"] .segment', ids, f"{case}/{group}", errors)
+        check_button_geometry(page, '#dashboard-tabs .pivot-item',
+                              ('tab-history', 'tab-overview'), f"{case}/tabs", errors)
+        page.locator('#tab-history').evaluate('button => button.click()')
+        check_button_geometry(page, '.segmented[aria-label="Lọc lịch sử hoạt động"] .segment',
+                              ('history-filter-system', 'history-filter-user', 'history-filter-all'),
+                              f"{case}/history-filters", errors)
+        page.locator('#tab-overview').evaluate('button => button.click()')
 
         # Pending labels must fit in the existing control rows before any telemetry arrives.
         pending = page.evaluate("""() => {
@@ -195,7 +262,7 @@ def main():
         thread.join()
     if errors:
         raise SystemExit("Layout regression detected:\n" + "\n".join(errors))
-    print(f"PASS: {len(WIDTHS) * len(FONTS) + 2} viewport/font/theme combinations; safety states, manual fan, LED colors, reduced motion, and stable layout")
+    print(f"PASS: {len(WIDTHS) * len(FONTS) + 2} viewport/font/theme combinations; safety states, button groups, manual fan, LED colors, reduced motion, and stable layout")
 
 
 if __name__ == "__main__":

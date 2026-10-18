@@ -237,6 +237,11 @@ function moTaQuat(duLieu) {
   return duLieu.gasAlarm ? 'Tự bật khi có gas' : 'Bật tay hoặc tự bật khi có gas';
 }
 
+function datNutDieuKhien(button, duocPhep, dangBan) {
+  button.disabled = dangBan || !duocPhep;
+  button.dataset.commandLocked = String(dangBan && duocPhep);
+}
+
 function hienThiDieuKhien(duLieuQuaCu, coCanhBao) {
   const dangTam = tamTatTatCa(duLieuThietBi);
   const coiDangTatTieng = dangTamTat(duLieuThietBi);
@@ -244,13 +249,13 @@ function hienThiDieuKhien(duLieuQuaCu, coCanhBao) {
   const dangBan = dangGuiLenh;
   $('control-panel').setAttribute('data-sending', String(dangBan));
   const muonBatQuat = lenhDangCho?.values?.fanOn ?? duLieuThietBi.fanOn;
-  const choPhepDatQuat = !dangBan && coTheDieuKhien(duLieuThietBi, 'fanOn');
+  const choPhepDatQuat = coTheDieuKhien(duLieuThietBi, 'fanOn');
   const hienThiLuaChonQuat = !duLieuQuaCu && !duLieuThietBi.gasAlarm && !dangTam && muonBatQuat != null;
   const cheDoQuatDangCho = lenhDangCho?.requested?.fanOn == null ? null : luaChonQuat;
   const cheDoQuat = muonBatQuat === true ? 'on' : luaChonQuat;
   for (const choice of ['off', 'on', 'auto']) {
     const button = $('fan-' + choice);
-    button.disabled = !choPhepDatQuat;
+    datNutDieuKhien(button, choPhepDatQuat, dangBan);
     button.setAttribute('aria-pressed', String(hienThiLuaChonQuat && cheDoQuat === choice));
   }
   $('fan-mode').closest('.setting-row').dataset.pendingOutput = cheDoQuatDangCho === 'on' ? 'on' : cheDoQuatDangCho === 'auto' ? 'auto' : cheDoQuatDangCho === 'off' ? 'off' : '';
@@ -278,7 +283,7 @@ function hienThiDieuKhien(duLieuQuaCu, coCanhBao) {
   $('led-state').closest('.setting-row').dataset.pendingOutput = denDuocYeuCau ?? '';
   for (const choice of ['auto', 'red', 'green', 'off']) {
     const button = $('led-' + choice);
-    button.disabled = dangBan || !coTheDieuKhien(duLieuThietBi, 'ledMode');
+    datNutDieuKhien(button, coTheDieuKhien(duLieuThietBi, 'ledMode'), dangBan);
     button.setAttribute('aria-pressed', String(denDaChon === choice));
   }
   for (const key of cacCheDo) {
@@ -293,11 +298,11 @@ function hienThiDieuKhien(duLieuQuaCu, coCanhBao) {
     $(key + '-state').closest('.setting-row').dataset.pendingOutput = cheDoYeuCau ?? '';
     for (const value of ['auto', 'on', 'off']) {
       const button = $(key + '-' + value);
-      button.disabled = dangBan || !coTheDieuKhien(duLieuThietBi, key);
+      datNutDieuKhien(button, coTheDieuKhien(duLieuThietBi, key), dangBan);
       button.setAttribute('aria-pressed', String((cheDoYeuCau ?? duLieuThietBi[key]) === value));
     }
   }
-  $('mute-button').disabled = dangBan || !coTheTamTat(duLieuThietBi);
+  datNutDieuKhien($('mute-button'), coTheTamTat(duLieuThietBi), dangBan);
   datChu('mute-button', coiDangTatTieng ? `Còn ${conLai} giây` : 'Tắt tiếng');
   datChu('mute-description', coiDangTatTieng ? logicMoi ?
     'Còi đang tắt tiếng. Đèn và quạt vẫn theo logic an toàn.' :
@@ -435,7 +440,8 @@ if (cheDoMoPhong) {
       buzzerMode: truocDo.buzzerMode ?? 'auto',
       ...values
     };
-    lenhDangCho = { id: maLenh, sentAt: Date.now(), values: cacGiaTriLenh, requested: values };
+    lenhDangCho = { id: maLenh, sentAt: Date.now(), values: cacGiaTriLenh,
+      requested: { ...lenhDangCho?.requested, ...values } };
     dangGuiLenh = true;
     thongBaoLenh = '';
     hienThi();

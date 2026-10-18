@@ -159,6 +159,11 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   const buzzerClick = button.listeners.click();
   assert.equal(nodes.get('buzzerMode-state').textContent, 'Chờ tắt', 'buzzer status updates before Firebase responds');
   assert.equal(nodes.get('buzzerMode-state').dataset.pendingOutput, 'off');
+  assert.equal(nodes.get('fan-on').dataset.commandLocked, 'true',
+    'an otherwise available button stays visually steady while the Firebase write is pending');
+  assert.equal(nodes.get('led-red').dataset.commandLocked, 'true');
+  assert.equal(nodes.get('mute-button').dataset.commandLocked, 'false',
+    'a safety-disabled button must not become visually enabled while sending');
   releaseWrite();
   await buzzerClick;
   state.blockWrite = null;
@@ -293,4 +298,26 @@ test('authenticated controls send atomic commands and await device acknowledgeme
     fanReason: 'blocked', logicVersion: 4, muteUntil: Date.now() + 30_000 }) });
   assert.doesNotMatch(nodes.get('mute-description').textContent, /quạt vẫn chạy/);
   assert.doesNotMatch(html, /id="suppression-banner"/, 'mute status belongs beside the mute control');
+
+  state.reading({ val: () => ({ ...safe, updatedAt: Date.now() }) });
+  await nodes.get('led-red').listeners.click();
+  await nodes.get('buzzerMode-off').listeners.click();
+  assert.equal(nodes.get('buzzerMode-state').textContent, 'Chờ tắt');
+  await nodes.get('fan-on').listeners.click();
+  assert.equal(state.write.values.buzzerMode, 'off', 'fan command carries the pending buzzer choice');
+  assert.deepEqual([state.write.values.alarmLedMode, state.write.values.statusLedMode], ['on', 'off']);
+  assert.equal(nodes.get('led-red').attributes['aria-pressed'], 'true');
+  assert.equal(nodes.get('led-state').textContent, 'Chờ chuyển đỏ');
+  assert.equal(nodes.get('buzzerMode-off').attributes['aria-pressed'], 'true',
+    'fan click must not make the buzzer choice jump back to old telemetry');
+  assert.equal(nodes.get('buzzerMode-state').textContent, 'Chờ tắt',
+    'the buzzer remains pending until the latest combined command is acknowledged');
+  for (const choice of ['off', 'auto']) {
+    await nodes.get('fan-' + choice).listeners.click();
+    assert.equal(nodes.get('led-red').attributes['aria-pressed'], 'true');
+    assert.equal(nodes.get('led-state').textContent, 'Chờ chuyển đỏ');
+    assert.equal(nodes.get('buzzerMode-off').attributes['aria-pressed'], 'true',
+      `fan ${choice} must preserve the pending buzzer choice`);
+    assert.equal(nodes.get('buzzerMode-state').textContent, 'Chờ tắt');
+  }
 });
