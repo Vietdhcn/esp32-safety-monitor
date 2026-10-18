@@ -83,6 +83,8 @@ struct WifiProfile {
 };
 WifiProfile wifiProfiles[MAX_WIFI_NETWORKS];
 size_t wifiProfileCount = 0;
+uint8_t failedWifiBssid[6] = {};
+bool hasFailedWifiBssid = false;
 char wifiChangeId[65] = "";
 char wifiChangeStatus[16] = "";
 bool wifiSwitchInProgress = false;
@@ -454,13 +456,24 @@ void connectWifi() {
       break;
     }
   }
+  // An AP may keep Wi-Fi associated while its route to Firebase is broken.
+  // Try every other visible saved AP before returning to that BSSID.
+  if (hasFailedWifiBssid) {
+    for (int index = 0; index < matchCount; ++index) {
+      if (memcmp(matchingNetworks[index].bssid, failedWifiBssid, sizeof(failedWifiBssid)) != 0) continue;
+      const WifiNetwork failed = matchingNetworks[index];
+      for (int move = index; move < matchCount - 1; ++move) matchingNetworks[move] = matchingNetworks[move + 1];
+      matchingNetworks[matchCount - 1] = failed;
+      break;
+    }
+  }
   Serial.printf("WiFi scan count=%d targetCount=%d\n", networkCount, matchCount);
   WiFi.scanDelete();
   for (int index = 0; index < matchCount; ++index) {
     const WifiProfile& profile = known[matchingNetworks[index].profileIndex];
     WiFi.begin(profile.ssid, profile.password, matchingNetworks[index].channel, matchingNetworks[index].bssid);
     const unsigned long startedAt = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - startedAt < 8000) {
+    while (WiFi.status() != WL_CONNECTED && millis() - startedAt < 6000) {
       delay(100);
     }
     const bool connected = WiFi.status() == WL_CONNECTED;
@@ -943,22 +956,21 @@ void firebaseTask(void*) {
           lastSendFailed = telemetryStatus != 204;
           if (telemetryStatus < 0 && !changingWifi()) {
             if (consecutiveNetworkFailures < 3) ++consecutiveNetworkFailures;
-            if (consecutiveNetworkFailures >= 3 &&
-                (lastWifiRecoveryAt == 0 || millis() - lastWifiRecoveryAt >= 30000)) {
+            if (consecutiveNetworkFailures >= 2 &&
+                (lastWifiRecoveryAt == 0 || millis() - lastWifiRecoveryAt >= 15000)) {
               lastWifiRecoveryAt = millis();
+              lastWifiScanAt = lastWifiRecoveryAt;
               consecutiveNetworkFailures = 0;
-              const int channel = WiFi.channel();
-              uint8_t bssid[6];
               Serial.printf("WiFi recovery after HTTPS failures; RSSI=%d dBm channel=%d\n",
-                            WiFi.RSSI(), channel);
-              if (WiFi.status() == WL_CONNECTED && WiFi.BSSID(bssid) != nullptr) {
-                WiFi.disconnect(false, false);
-                // Hai AP cung SSID: ket noi lai dung BSSID da dang nhap duoc.
-                WiFi.begin(activeWifiSsid, activeWifiPassword, channel, bssid);
+                            WiFi.RSSI(), WiFi.channel());
+              if (WiFi.status() == WL_CONNECTED && WiFi.BSSID(failedWifiBssid) != nullptr) {
+                hasFailedWifiBssid = true;
               }
+              connectWifi();
             }
           } else {
             consecutiveNetworkFailures = 0;
+            if (telemetryStatus == 204) hasFailedWifiBssid = false;
           }
           if (!lastSendFailed) {
             lastSentVersion = version;
