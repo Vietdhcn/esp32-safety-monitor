@@ -98,9 +98,45 @@ test('legacy speed readings do not create new history events', () => {
   assert.deepEqual(cacThayDoiLichSu(updated, reading({ fanSpeedPct: 30, fanOn: true })), []);
 });
 
-test('history ignores invalid readings and bounds the saved list', () => {
+test('history ignores invalid readings and keeps every saved event', () => {
   assert.deepEqual(cacThayDoiLichSu(reading(), reading({ updatedAt: null, gasAlarm: true })), []);
-  const items = Array.from({ length: 101 }, (_, i) => ({ at: i, title: String(i), kind: 'device' }));
-  assert.equal(themLichSu([], items).length, 100);
-  assert.equal(themLichSu([], items)[0].title, '100');
+  const items = Array.from({ length: 250 }, (_, i) => ({ at: i, title: String(i), kind: 'user' }));
+  assert.equal(themLichSu([], items).length, 250);
+  assert.equal(themLichSu([], items)[0].title, '249');
+});
+
+test('dashboard sample and range statistics cover temperature, humidity and alarms', () => {
+  const { mauDoLichSu, thongKeLichSu, duongBieuDo } = historyModel;
+  const at = 1_700_000_000_000;
+  const samples = [
+    mauDoLichSu(reading({ updatedAt: at, temperatureC: 25, humidityPct: 60 })),
+    mauDoLichSu(reading({ updatedAt: at + 60_000, temperatureC: 27, humidityPct: 64, gasAlarm: true })),
+    mauDoLichSu(reading({ updatedAt: at + 120_000, temperatureC: null, humidityPct: 62, flameDetected: true }))
+  ];
+  const events = [
+    { at: at + 61_000, source: 'system', title: 'Phát hiện khí gas' },
+    { at: at + 62_000, source: 'system', title: 'Phát hiện lửa' },
+    { at: at + 63_000, source: 'user', title: 'Bật quạt' },
+    { at: at - 1000, source: 'user', title: 'Tắt quạt' }
+  ];
+  const summary = thongKeLichSu(samples, events, at, at + 120_000);
+  assert.deepEqual(summary.temperature, { latest: 27, min: 25, max: 27, average: 26, count: 2 });
+  assert.deepEqual(summary.humidity, { latest: 62, min: 60, max: 64, average: 62, count: 3 });
+  assert.deepEqual(summary.alerts, { flame: 1, gas: 1, user: 1 });
+  assert.equal(samples[1].gasAlarm, true);
+  assert.match(duongBieuDo(samples, 'temperatureC', at, at + 120_000), /^M /);
+  assert.equal(mauDoLichSu(reading({ updatedAt: null, temperatureC: 25 })), null);
+  assert.equal(mauDoLichSu(reading({ temperatureC: null, humidityPct: null })), null);
+});
+
+test('activity buckets separate flame, gas and button presses across the selected period', () => {
+  const from = 1_700_000_000_000;
+  const bins = historyModel.nhomHoatDong([
+    { at: from + 10, source: 'system', title: 'Phát hiện lửa' },
+    { at: from + 20, source: 'system', title: 'Phát hiện khí gas' },
+    { at: from + 51, source: 'user', title: 'Bật quạt' },
+    { at: from + 52, source: 'system', title: 'Lửa đã an toàn' }
+  ], from, from + 100, 2);
+  assert.deepEqual(bins.map(({ flame, gas, user }) => ({ flame, gas, user })),
+    [{ flame: 1, gas: 1, user: 0 }, { flame: 0, gas: 0, user: 1 }]);
 });

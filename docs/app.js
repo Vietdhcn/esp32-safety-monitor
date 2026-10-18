@@ -1,6 +1,7 @@
 import { firebaseConfig, deviceId, ownerUid } from './config.js?v=20261018-1';
 import { chuanHoaDuLieu, duLieuCu, thietBiNgoaiTuyen, laMoPhongNoiBo, taoDuLieuMoPhong, cacCheDo, luaChonMauDen, lenhDen, coTheDieuKhien, coTheTamTat, dangTamTat, tamTatTatCa, laLogicMoi, lenhHopLe, tienDoLenh, loiCauHinhWifi } from './dashboard-model.js?v=20261018-5';
-import { cacThayDoiLichSu, themLichSu, lichSuThaoTac, locLichSu, xoaLichSuTheoNguon, lamSachLichSuHeThongCu } from './history-model.js?v=20261017-1';
+import { cacThayDoiLichSu, themLichSu, lichSuThaoTac, locLichSu, xoaLichSuTheoNguon, lamSachLichSuHeThongCu, mauDoLichSu, thongKeLichSu, duongBieuDo, nhomHoatDong } from './history-model.js?v=20261018-1';
+import { taoKhoMauLichSu } from './history-samples-store.js?v=20261018-1';
 
 const $ = id => document.getElementById(id);
 const thongBaoCauHinh = $('setup-message');
@@ -25,6 +26,12 @@ let guiLenh = async () => {};
 let khoaLichSu = '';
 let cacMucLichSu = [];
 let nguonLichSu = 'all';
+let khoMauLichSu = null;
+let phamViLichSu = 'day';
+let trangLichSu = 1;
+let phutMauCuoi = null;
+let coMauLichSu = false;
+let lanTaiBieuDo = 0;
 let duLieuTruoc = null;
 let boQuaLanDocDau = false;
 const ngoRaCheDo = { buzzerMode: 'buzzerOn' };
@@ -39,6 +46,7 @@ function chonTab(name, focus = false) {
     $(`${tabName}-view`).hidden = !active;
     if (active && focus) tab.focus();
   }
+  if (name === 'history') void hienThiBangLichSu();
 }
 for (const name of tenCacTab) {
   const tab = $(`tab-${name}`);
@@ -73,7 +81,10 @@ function luuLichSu() {
 function hienThiLichSu() {
   const list = $('history-list');
   list.replaceChildren();
-  const visible = locLichSu(cacMucLichSu, nguonLichSu);
+  const allVisible = locLichSu(cacMucLichSu, nguonLichSu);
+  const totalPages = Math.max(1, Math.ceil(allVisible.length / 50));
+  trangLichSu = Math.min(trangLichSu, totalPages);
+  const visible = allVisible.slice((trangLichSu - 1) * 50, trangLichSu * 50);
   for (const entry of visible) {
     const item = document.createElement('li');
     item.tabIndex = 0;
@@ -104,9 +115,13 @@ function hienThiLichSu() {
     list.append(item);
   }
   $('history-empty').hidden = visible.length > 0;
+  $('history-pages').hidden = totalPages <= 1;
+  $('history-page-prev').disabled = trangLichSu <= 1;
+  $('history-page-next').disabled = trangLichSu >= totalPages;
+  datChu('history-page-label', `Trang ${trangLichSu} / ${totalPages}`);
   $('history-empty').textContent = nguonLichSu === 'user' ? 'Chưa có thao tác nào của bạn.' :
     nguonLichSu === 'system' ? 'Chưa có sự kiện hệ thống nào.' : 'Chưa có hoạt động nào được ghi lại.';
-  $('clear-history-all').disabled = cacMucLichSu.length === 0;
+  $('clear-history-all').disabled = cacMucLichSu.length === 0 && !coMauLichSu;
   $('clear-history-system').disabled = locLichSu(cacMucLichSu, 'system').length === 0;
   $('clear-history-user').disabled = locLichSu(cacMucLichSu, 'user').length === 0;
   $('history-count').textContent = String(cacMucLichSu.length);
@@ -120,14 +135,101 @@ function hienThiLichSu() {
 for (const source of ['all', 'system', 'user']) {
   $('history-filter-' + source).addEventListener('click', () => {
     nguonLichSu = source;
+    trangLichSu = 1;
     hienThiLichSu();
   });
 }
 
+$('history-page-prev').addEventListener('click', () => {
+  if (trangLichSu <= 1) return;
+  trangLichSu--;
+  hienThiLichSu();
+});
+$('history-page-next').addEventListener('click', () => {
+  trangLichSu++;
+  hienThiLichSu();
+});
+
+const doDaiPhamVi = { day: 24 * 60 * 60_000, week: 7 * 24 * 60 * 60_000, month: 30 * 24 * 60 * 60_000 };
+for (const range of Object.keys(doDaiPhamVi)) {
+  $('history-range-' + range).addEventListener('click', () => {
+    phamViLichSu = range;
+    for (const name of Object.keys(doDaiPhamVi))
+      $('history-range-' + name).setAttribute('aria-pressed', String(name === range));
+    void hienThiBangLichSu();
+  });
+}
+
+async function hienThiBangLichSu() {
+  if (!khoMauLichSu) return;
+  const token = ++lanTaiBieuDo;
+  const to = Date.now();
+  const from = to - doDaiPhamVi[phamViLichSu];
+  try {
+    const [samples, hasAny] = await Promise.all([khoMauLichSu.range(from, to), khoMauLichSu.hasAny()]);
+    if (token !== lanTaiBieuDo) return;
+    coMauLichSu = hasAny;
+    $('clear-history-all').disabled = cacMucLichSu.length === 0 && !coMauLichSu;
+    const summary = thongKeLichSu(samples, cacMucLichSu, from, to);
+    const format = (value, unit) => value == null ? '—' : `${value.toFixed(1)} ${unit}`;
+    datChu('history-temp-current', format(summary.temperature.latest, '°C'));
+    datChu('history-humidity-current', format(summary.humidity.latest, '%'));
+    datChu('history-temp-range', summary.temperature.count ?
+      `Thấp nhất ${format(summary.temperature.min, '°C')} · Cao nhất ${format(summary.temperature.max, '°C')}` : 'Chưa có dữ liệu');
+    datChu('history-humidity-range', summary.humidity.count ?
+      `Thấp nhất ${format(summary.humidity.min, '%')} · Cao nhất ${format(summary.humidity.max, '%')}` : 'Chưa có dữ liệu');
+    datChu('history-temp-average', summary.temperature.count ? `Trung bình ${format(summary.temperature.average, '°C')}` : '—');
+    datChu('history-humidity-average', summary.humidity.count ? `Trung bình ${format(summary.humidity.average, '%')}` : '—');
+    $('history-temp-line').setAttribute('d', duongBieuDo(samples, 'temperatureC', from, to));
+    $('history-humidity-line').setAttribute('d', duongBieuDo(samples, 'humidityPct', from, to));
+    datChu('history-period', samples.length ?
+      `Số đo từ ${dinhDangNgayGio.format(new Date(samples[0].at))} đến ${dinhDangNgayGio.format(new Date(samples.at(-1).at))} trong khoảng đã chọn.` :
+      'Chưa có số đo trong khoảng thời gian này.');
+    datChu('history-flame-count', String(summary.alerts.flame));
+    datChu('history-gas-count', String(summary.alerts.gas));
+    datChu('history-user-range-count', String(summary.alerts.user));
+    const bins = nhomHoatDong(cacMucLichSu, from, to);
+    const maxCount = Math.max(1, ...bins.flatMap(bin => [bin.flame, bin.gas, bin.user]));
+    const columns = bins.map((bin, index) => {
+      const column = document.createElement('div');
+      column.className = 'history-activity-bin';
+      column.title = `${dinhDangNgayGio.format(new Date(from + index * (to - from) / bins.length))}: Lửa ${bin.flame}, khí gas ${bin.gas}, bạn nhấn ${bin.user}`;
+      for (const category of ['flame', 'gas', 'user']) {
+        const bar = document.createElement('span');
+        bar.className = `history-activity-bar history-activity-bar-${category}`;
+        bar.style.height = bin[category] ? `${Math.max(3, bin[category] / maxCount * 100)}%` : '0';
+        column.append(bar);
+      }
+      return column;
+    });
+    $('history-activity-bars').replaceChildren(...columns);
+    $('history-activity-bars').setAttribute('aria-label',
+      `Trong khoảng đã chọn: ${summary.alerts.flame} cảnh báo lửa, ${summary.alerts.gas} cảnh báo khí gas, ${summary.alerts.user} thao tác.`);
+    $('history-activity-empty').hidden = !bins.every(bin => !bin.flame && !bin.gas && !bin.user);
+    for (const [id, title, empty] of [
+      ['history-flame-last', 'Phát hiện lửa', 'Chưa ghi nhận'],
+      ['history-gas-last', 'Phát hiện khí gas', 'Chưa ghi nhận'],
+      ['history-user-last', null, 'Chưa có thao tác']
+    ]) {
+      const latest = cacMucLichSu.find(entry => entry.at >= from && entry.at <= to &&
+        (title ? entry.source !== 'user' && entry.title === title : entry.source === 'user'));
+      datChu(id, latest ? `Gần nhất ${dinhDangNgayGio.format(new Date(latest.at))}` : empty);
+    }
+    datChu('history-dashboard-status', '');
+  } catch {
+    datChu('history-dashboard-status', 'Không đọc được số đo đã lưu trên trình duyệt này.');
+  }
+}
+
 function datPhamViLichSu(scope) {
   khoaLichSu = `safety-history:${deviceId}:${scope}`;
+  khoMauLichSu = taoKhoMauLichSu(`${deviceId}:${scope}`);
   cacMucLichSu = [];
   nguonLichSu = 'all';
+  trangLichSu = 1;
+  phutMauCuoi = null;
+  coMauLichSu = false;
+  lanTaiBieuDo++;
   duLieuTruoc = null;
   boQuaLanDocDau = false;
   let lichSuCuCanChuyen = false;
@@ -137,7 +239,7 @@ function datPhamViLichSu(scope) {
       Number.isFinite(item?.at) && item.at > 0 && item.at <= 8_640_000_000_000_000 &&
       typeof item.title === 'string' && typeof item.detail === 'string' &&
       ['info', 'safe', 'danger', 'device', 'user'].includes(item.kind))
-      .slice(0, 100).map(item => ({ ...item, source: item.source === 'user' ? 'user' : 'system' }));
+      .map(item => ({ ...item, source: item.source === 'user' ? 'user' : 'system' }));
     if (Array.isArray(daLuu?.items)) {
       const daLoc = lamSachLichSuHeThongCu(cacMucLichSu);
       lichSuCuCanChuyen = daLuu.version !== 3 || daLoc.length !== cacMucLichSu.length;
@@ -148,11 +250,27 @@ function datPhamViLichSu(scope) {
   } catch { /* A damaged or unavailable local store starts with an empty history. */ }
   $('history-status').textContent = '';
   hienThiLichSu();
+  void hienThiBangLichSu();
   if (lichSuCuCanChuyen) luuLichSu();
+}
+
+function ghiMauDo() {
+  const sample = mauDoLichSu(duLieuThietBi);
+  if (!sample || !khoMauLichSu) return;
+  const minute = Math.floor(sample.at / 60_000);
+  if (minute === phutMauCuoi) return;
+  phutMauCuoi = minute;
+  void khoMauLichSu.save(sample).then(() => {
+    if (!$('history-view').hidden) void hienThiBangLichSu();
+  }).catch(() => {
+    phutMauCuoi = null;
+    datChu('history-dashboard-status', 'Không thể lưu số đo trên trình duyệt này.');
+  });
 }
 
 function ghiDuLieu() {
   if (!khoaLichSu || duLieuCu(duLieuThietBi.updatedAt)) return;
+  ghiMauDo();
   if (boQuaLanDocDau) {
     boQuaLanDocDau = false;
     duLieuTruoc = duLieuThietBi;
@@ -166,6 +284,7 @@ function ghiDuLieu() {
     $('history-status').textContent = '';
     hienThiLichSu();
     luuLichSu();
+    if (!$('history-view').hidden) void hienThiBangLichSu();
   }
 }
 
@@ -177,15 +296,24 @@ function ghiThaoTac(values, outcome) {
   $('history-status').textContent = '';
   hienThiLichSu();
   luuLichSu();
+  if (!$('history-view').hidden) void hienThiBangLichSu();
 }
 
 for (const [source, label] of [['system', 'hệ thống'], ['user', 'bạn đã nhấn'], ['all', 'toàn bộ']]) {
   $('clear-history-' + source).addEventListener('click', () => {
-    if (!locLichSu(cacMucLichSu, source).length ||
-      !window.confirm(`Xóa lịch sử ${label} đã lưu trên trình duyệt này?`)) return;
+    if ((!locLichSu(cacMucLichSu, source).length && !(source === 'all' && coMauLichSu)) ||
+      !window.confirm(source === 'all' ? 'Xóa toàn bộ sự kiện, thao tác và số đo đã lưu trên trình duyệt này?' :
+        `Xóa lịch sử ${label} đã lưu trên trình duyệt này?`)) return;
     cacMucLichSu = xoaLichSuTheoNguon(cacMucLichSu, source);
+    if (source === 'all') coMauLichSu = false;
     luuLichSu();
     hienThiLichSu();
+    if (source === 'all' && khoMauLichSu) {
+      phutMauCuoi = null;
+      lanTaiBieuDo++;
+      void khoMauLichSu.clear().then(() => hienThiBangLichSu()).catch(() =>
+        datChu('history-dashboard-status', 'Không xóa được số đo đã lưu.'));
+    } else void hienThiBangLichSu();
     $('history-status').textContent = `Đã xóa lịch sử ${label} trên trình duyệt này.`;
   });
 }
@@ -565,8 +693,11 @@ if (cheDoMoPhong) {
       huyTheoDoiDuLieu = null;
       duLieuThietBi = chuanHoaDuLieu();
       khoaLichSu = '';
+      khoMauLichSu = null;
       cacMucLichSu = [];
       nguonLichSu = 'all';
+      coMauLichSu = false;
+      lanTaiBieuDo++;
       duLieuTruoc = null;
       boQuaLanDocDau = false;
       hienThiLichSu();

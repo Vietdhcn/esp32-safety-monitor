@@ -10,8 +10,8 @@
   <title>Trạm giám sát an toàn</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1a1a'/%3E%3Cpath d='M16 6c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-5 3-6 0 2 1 3 2 3 0-3 0-6 1-9z' fill='%23fff'/%3E%3C/svg%3E">
   <script src="./theme.js?v=20261016-30"></script>
-  <link rel="stylesheet" href="./styles.css?v=20261018-6">
-  <script type="module" src="./app.js?v=20261018-7"></script>
+  <link rel="stylesheet" href="./styles.css?v=20261018-7">
+  <script type="module" src="./app.js?v=20261018-8"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -139,6 +139,34 @@
         </div>
 
         <section id="history-view" class="history" role="tabpanel" aria-labelledby="tab-history" tabindex="0" hidden>
+          <div class="history-heading">
+            <div><h2>Lịch sử theo dõi</h2><p class="subtle">Nhiệt độ, độ ẩm, cảnh báo an toàn và các nút bạn đã nhấn.</p></div>
+            <div class="segmented" role="group" aria-label="Khoảng thời gian thống kê">
+              <button id="history-range-day" class="segment" type="button" aria-pressed="true">24 giờ</button>
+              <button id="history-range-week" class="segment" type="button" aria-pressed="false">7 ngày</button>
+              <button id="history-range-month" class="segment" type="button" aria-pressed="false">30 ngày</button>
+            </div>
+          </div>
+          <div class="history-summary" aria-label="Thống kê lịch sử">
+            <article class="card history-stat history-stat-temperature"><h3>Nhiệt độ</h3><strong id="history-temp-current">—</strong><p id="history-temp-range" class="subtle">Chưa có dữ liệu</p></article>
+            <article class="card history-stat history-stat-humidity"><h3>Độ ẩm</h3><strong id="history-humidity-current">—</strong><p id="history-humidity-range" class="subtle">Chưa có dữ liệu</p></article>
+            <article class="card history-stat history-stat-flame"><h3>Cảnh báo lửa</h3><strong id="history-flame-count">0</strong><p id="history-flame-last" class="subtle">Chưa ghi nhận</p></article>
+            <article class="card history-stat history-stat-gas"><h3>Cảnh báo khí gas</h3><strong id="history-gas-count">0</strong><p id="history-gas-last" class="subtle">Chưa ghi nhận</p></article>
+            <article class="card history-stat history-stat-user"><h3>Bạn đã nhấn</h3><strong id="history-user-range-count">0</strong><p id="history-user-last" class="subtle">Chưa có thao tác</p></article>
+          </div>
+          <div class="history-charts">
+            <article class="card history-chart history-chart-temperature"><div class="history-chart-heading"><h3>Biểu đồ nhiệt độ</h3><span id="history-temp-average" class="subtle">—</span></div><svg viewBox="0 0 600 160" preserveAspectRatio="none" role="img" aria-label="Diễn biến nhiệt độ"><path class="history-chart-grid" d="M 10 20 H 590 M 10 80 H 590 M 10 140 H 590"/><path id="history-temp-line" class="history-chart-line" d=""/></svg><p id="history-temp-chart-empty" class="subtle history-chart-empty">Chưa có số đo trong khoảng này.</p></article>
+            <article class="card history-chart history-chart-humidity"><div class="history-chart-heading"><h3>Biểu đồ độ ẩm</h3><span id="history-humidity-average" class="subtle">—</span></div><svg viewBox="0 0 600 160" preserveAspectRatio="none" role="img" aria-label="Diễn biến độ ẩm"><path class="history-chart-grid" d="M 10 20 H 590 M 10 80 H 590 M 10 140 H 590"/><path id="history-humidity-line" class="history-chart-line" d=""/></svg><p id="history-humidity-chart-empty" class="subtle history-chart-empty">Chưa có số đo trong khoảng này.</p></article>
+          </div>
+          <p id="history-period" class="history-period subtle">Chưa có số đo trong khoảng thời gian này.</p>
+          <article class="card history-activity">
+            <div class="history-activity-heading"><h3>Hoạt động theo thời gian</h3><div class="history-legend" aria-label="Chú giải biểu đồ"><span class="history-legend-flame">Lửa</span><span class="history-legend-gas">Khí gas</span><span class="history-legend-user">Bạn nhấn</span></div></div>
+            <div id="history-activity-bars" class="history-activity-bars" role="img" aria-label="Số cảnh báo lửa, khí gas và thao tác theo thời gian"></div>
+            <p id="history-activity-empty" class="history-chart-empty subtle">Chưa có cảnh báo hoặc thao tác trong khoảng này.</p>
+            <div class="history-activity-axis subtle"><span>Đầu kỳ</span><span>Hiện tại</span></div>
+          </article>
+          <p id="history-dashboard-status" class="history-status" role="status"></p>
+          <h3 class="history-events-title">Sự kiện và thao tác</h3>
           <div class="history-toolbar">
             <div class="segmented" role="group" aria-label="Lọc lịch sử hoạt động">
               <button id="history-filter-all" class="segment" type="button" aria-pressed="true">Tất cả</button>
@@ -151,12 +179,17 @@
               <button id="clear-history-all" class="button button-danger" type="button" disabled>Xóa toàn bộ</button>
             </div>
           </div>
-          <p class="subtle history-note">Lưu tối đa 100 mục trên trình duyệt này. Hệ thống chỉ ghi khi phát hiện lửa/gas và khi hết cảnh báo; “Bạn đã nhấn” ghi thao tác điều khiển.</p>
+          <p class="subtle history-note">Đã bỏ giới hạn 100 mục. Số đo được lưu mỗi phút; hệ thống chỉ ghi sự kiện khi lửa/gas đổi trạng thái. Dữ liệu lưu trên trình duyệt này và phụ thuộc dung lượng còn trống.</p>
           <p id="history-status" class="history-status" role="status"></p>
           <div class="card history-card" role="region" aria-label="Danh sách lịch sử hoạt động" tabindex="0">
             <ol id="history-list" class="history-list" aria-live="polite"></ol>
             <p id="history-empty" class="history-empty subtle">Chưa có hoạt động nào được ghi lại.</p>
           </div>
+          <nav id="history-pages" class="history-pages" aria-label="Trang lịch sử" hidden>
+            <button id="history-page-prev" class="button" type="button">Trang trước</button>
+            <span id="history-page-label" class="subtle">Trang 1 / 1</span>
+            <button id="history-page-next" class="button" type="button">Trang sau</button>
+          </nav>
         </section>
 
         <section id="account-view" class="account-view" role="tabpanel" aria-labelledby="tab-account" tabindex="0" hidden>

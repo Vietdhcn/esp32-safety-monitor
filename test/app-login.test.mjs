@@ -87,7 +87,7 @@ test('authenticated controls send atomic commands and await device acknowledgeme
         } };`
   };
   let source = await readFile(new URL('../docs/app.js', import.meta.url), 'utf8');
-  for (const name of ['config', 'dashboard-model', 'history-model']) {
+  for (const name of ['config', 'dashboard-model', 'history-model', 'history-samples-store']) {
     source = source.replace(new RegExp(`'\\./${name}\\.js(?:\\?[^']*)?'`),
       JSON.stringify(new URL(`../docs/${name}.js`, import.meta.url).href));
   }
