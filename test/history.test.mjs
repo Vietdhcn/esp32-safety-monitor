@@ -144,3 +144,47 @@ test('activity buckets separate flame, gas and button presses across the selecte
   assert.deepEqual(bins.map(({ flame, gas, user }) => ({ flame, gas, user })),
     [{ flame: 1, gas: 1, user: 0 }, { flame: 0, gas: 0, user: 1 }]);
 });
+
+test('daily alert buckets use local calendar dates and ignore user actions', () => {
+  const start = new Date(2026, 9, 16, 0, 0, 0).getTime();
+  const end = new Date(2026, 9, 18, 12, 0, 0).getTime();
+  const events = [
+    { at: new Date(2026, 9, 16, 23, 59).getTime(), source: 'system', title: 'Phát hiện khí gas' },
+    { at: new Date(2026, 9, 17, 0, 1).getTime(), source: 'system', title: 'Phát hiện lửa' },
+    { at: new Date(2026, 9, 17, 1, 0).getTime(), source: 'user', title: 'Bật quạt' },
+    { at: new Date(2026, 9, 17, 2, 0).getTime(), source: 'system', title: 'Lửa đã an toàn' },
+    { at: new Date(2026, 9, 18, 11, 0).getTime(), source: 'system', title: 'Phát hiện lửa' }
+  ];
+  const bins = historyModel.nhomCanhBaoTheoNgay(events, start, end);
+  assert.deepEqual(bins.map(bin => [new Date(bin.at).getDate(), bin.flame, bin.gas]),
+    [[16, 0, 1], [17, 1, 0], [18, 1, 0]]);
+});
+
+test('daily measurement chart averages each metric independently by local calendar day', () => {
+  const day = (date, hour, minute = 0) => new Date(2026, 9, date, hour, minute).getTime();
+  const from = day(16, 0);
+  const to = day(18, 12);
+  const samples = [
+    { at: day(16, 9), temperatureC: 20, humidityPct: 50 },
+    { at: day(16, 10), temperatureC: 30, humidityPct: null },
+    { at: day(16, 11), temperatureC: null, humidityPct: 70 },
+    { at: day(18, 9), temperatureC: 28, humidityPct: 80 },
+    { at: day(18, 13), temperatureC: 99, humidityPct: 99 },
+    { at: day(15, 23), temperatureC: 99, humidityPct: 99 }
+  ];
+  assert.deepEqual(historyModel.trungBinhMauTheoNgay(samples, from, to), [
+    { at: day(16, 0), temperatureC: 25, humidityPct: 60 },
+    { at: day(18, 0), temperatureC: 28, humidityPct: 80 }
+  ]);
+});
+
+test('chart leaves a gap across days without measurements', () => {
+  const from = new Date(2026, 9, 16).getTime();
+  const to = new Date(2026, 9, 20).getTime();
+  const daily = [
+    { at: from, temperatureC: 25 },
+    { at: new Date(2026, 9, 18).getTime(), temperatureC: 27 }
+  ];
+  assert.equal((historyModel.duongBieuDo(daily, 'temperatureC', from, to, 36 * 60 * 60 * 1000)
+    .match(/\bM /g) || []).length, 2);
+});

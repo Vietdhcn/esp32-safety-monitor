@@ -6,7 +6,7 @@ export const cacCheDo = ['buzzerMode'];
 const cheDoHopLe = giaTri => giaTriCheDo.includes(giaTri) ? giaTri : null;
 const lyDoQuat = ['gas', 'purge', 'manual', 'blocked', 'off'];
 const lyDoKhoiDong = ['power-on', 'brownout', 'panic', 'watchdog', 'software', 'external', 'other'];
-const trangThaiDoiWifi = ['connecting', 'applied', 'failed'];
+const trangThaiDoiWifi = ['connecting', 'applied', 'saved', 'failed'];
 // Firmware logicVersion 3: lọc nhiễu, tắt tiếng chỉ tắt còi, báo lửa dừng quạt tay.
 export const LOGIC_MOI = 3;
 export const laLogicMoi = duLieu => duLieu?.logicVersion >= LOGIC_MOI;
@@ -43,7 +43,7 @@ export function chuanHoaDuLieu(giaTri = {}) {
     resetReason: lyDoKhoiDong.includes(duLieu.resetReason) ? duLieu.resetReason : null,
     temperatureC: soDoHopLe(duLieu.temperatureC, -40, 80),
     humidityPct: soDoHopLe(duLieu.humidityPct, 0, 100), updatedAt: soDoHopLe(duLieu.updatedAt, 1, Number.MAX_SAFE_INTEGER),
-    wifiConfigVersion: [1, 2].includes(duLieu.wifiConfigVersion) ? duLieu.wifiConfigVersion : null,
+    wifiConfigVersion: [1, 2, 3, 4].includes(duLieu.wifiConfigVersion) ? duLieu.wifiConfigVersion : null,
     wifiSsid: typeof duLieu.wifiSsid === 'string' && new TextEncoder().encode(duLieu.wifiSsid).length <= 32 ? duLieu.wifiSsid : null,
     wifiSavedSsids: Array.isArray(duLieu.wifiSavedSsids) ? [...new Set(duLieu.wifiSavedSsids.filter(
       ssid => typeof ssid === 'string' && ssid.trim() && new TextEncoder().encode(ssid).length <= 32

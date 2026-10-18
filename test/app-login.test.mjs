@@ -16,7 +16,10 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   }
   assert.doesNotMatch(html, /id="fan-(?:30|60|90|100)"/);
   assert.match(html, /id="operator-list"/, 'the owner needs a list of granted accounts');
-  const originals = new Map(['document', 'window', 'localStorage', 'setInterval', '__firebaseLoginTest']
+  assert.ok(html.indexOf('id="wifi-settings-section"') < html.indexOf('id="operator-management-section"'),
+    'Wi-Fi settings should appear above the operator list');
+  assert.match(html, /id="reveal-wifi-passwords"/);
+  const originals = new Map(['document', 'window', 'localStorage', 'setInterval', 'setTimeout', 'clearTimeout', '__firebaseLoginTest']
     .map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   t.after(() => {
     for (const [key, descriptor] of originals) {
@@ -43,6 +46,14 @@ test('authenticated controls send atomic commands and await device acknowledgeme
     setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key)
   };
   globalThis.setInterval = () => 0;
+  const timeouts = new Map();
+  let nextTimeout = 0;
+  globalThis.setTimeout = (callback, delay) => {
+    const id = ++nextTimeout;
+    timeouts.set(id, { callback, delay });
+    return id;
+  };
+  globalThis.clearTimeout = id => timeouts.delete(id);
   const state = globalThis.__firebaseLoginTest = {};
   const moduleUrl = code => `data:text/javascript,${encodeURIComponent(code)}`;
   const sdk = {
@@ -367,6 +378,9 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(nodes.get('operator-management-section').hidden, true);
   assert.equal(nodes.get('wifi-settings-section').hidden, true,
     'operators must not see Wi-Fi credentials');
+  await nodes.get('reveal-wifi-passwords').listeners.click();
+  assert.notEqual(state.grant?.path, 'devices/esp32s-30p-01/commands/wifiReveal',
+    'operators cannot request saved Wi-Fi passwords');
   nodes.get('wifi-ssid').value = 'New network';
   nodes.get('wifi-password').value = 'new-password';
   await nodes.get('wifi-settings-form').listeners.submit({ preventDefault() {} });
@@ -432,9 +446,32 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.ok(nodes.get('operator-list').children.some(row => row.children.some(child =>
     child.textContent?.includes('old-uid'))), 'older accounts fall back to UID');
   assert.equal(nodes.get('wifi-settings-section').hidden, false);
-  state.reading({ val: () => ({ ...safe, wifiConfigVersion: 2, wifiSsid: 'Old network',
+  state.reading({ val: () => ({ ...safe, wifiConfigVersion: 4, wifiSsid: 'Old network',
     wifiSavedSsids: ['Old network'], updatedAt: Date.now() }) });
   assert.equal(nodes.get('wifi-current-ssid').textContent, 'Old network');
+  await nodes.get('reveal-wifi-passwords').listeners.click();
+  assert.equal(state.grant.path, 'devices/esp32s-30p-01/commands/wifiReveal');
+  const revealId = state.grant.value.requestId;
+  state.readings.get('devices/esp32s-30p-01/wifiReveal')({ val: () => ({
+    requestId: revealId, networks: [{ ssid: 'Old network', password: 'old-password-123' }]
+  }) });
+  assert.ok(nodes.get('wifi-saved-list').children[0].children.some(child =>
+    child.textContent === 'old-password-123'), 'owner can see the saved password returned by ESP32');
+  assert.deepEqual(state.grant, { path: 'devices/esp32s-30p-01/wifiReveal', value: null },
+    'the browser removes the one-time password response after reading it');
+  const autoHide = [...timeouts.values()].find(timer => timer.delay === 60_000);
+  assert.ok(autoHide, 'revealed passwords have a 60-second expiry');
+  autoHide.callback();
+  assert.equal(nodes.get('wifi-saved-list').children[0].children.some(child =>
+    child.textContent === 'old-password-123'), false, 'passwords disappear when the timer expires');
+  await nodes.get('reveal-wifi-passwords').listeners.click();
+  state.readings.get('devices/esp32s-30p-01/wifiReveal')({ val: () => ({
+    requestId: state.grant.value.requestId,
+    networks: [{ ssid: 'Old network', password: 'old-password-123' }]
+  }) });
+  await nodes.get('reveal-wifi-passwords').listeners.click();
+  assert.equal(nodes.get('wifi-saved-list').children[0].children.some(child =>
+    child.textContent === 'old-password-123'), false, 'hide clears the displayed password');
   nodes.get('show-wifi-password').checked = true;
   nodes.get('show-wifi-password').listeners.change();
   assert.equal(nodes.get('wifi-password').type, 'text');
@@ -451,19 +488,31 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(nodes.get('wifi-password').value, '', 'browser clears the entered password after sending');
   assert.equal([...storage.values()].some(value => value.includes('new-password')), false);
   const wifiRequestId = state.grant.value.requestId;
-  state.reading({ val: () => ({ ...safe, wifiConfigVersion: 2, wifiSsid: 'New network',
+  state.reading({ val: () => ({ ...safe, wifiConfigVersion: 4, wifiSsid: 'New network',
     wifiSavedSsids: ['Old network', 'New network'],
     wifiChangeId: wifiRequestId, wifiChangeStatus: 'applied', updatedAt: Date.now() }) });
   assert.match(nodes.get('wifi-settings-status').textContent, /đã kết nối/i);
-  assert.deepEqual(nodes.get('wifi-saved-list').children.map(item => item.textContent),
+  assert.deepEqual(nodes.get('wifi-saved-list').children.map(item => item.children[0].textContent),
     ['Old network', 'New network']);
   assert.equal(nodes.get('wifi-saved-list').children[1].dataset.active, 'true');
+  nodes.get('wifi-ssid').value = 'Future router';
+  nodes.get('wifi-password').value = 'future-password';
+  await nodes.get('wifi-settings-form').listeners.submit({ preventDefault() {} });
+  const stagedRequestId = state.grant.value.requestId;
+  state.reading({ val: () => ({ ...safe, wifiConfigVersion: 4, wifiSsid: 'New network',
+    wifiSavedSsids: ['Old network', 'New network', 'Future router'],
+    wifiChangeId: stagedRequestId, wifiChangeStatus: 'saved', updatedAt: Date.now() }) });
+  assert.match(nodes.get('wifi-settings-status').textContent, /đã lưu.*khi mạng khả dụng/i);
+  assert.equal(nodes.get('wifi-current-ssid').textContent, 'New network');
   nodes.get('wifi-ssid').value = 'Another network';
   nodes.get('wifi-password').value = 'short';
   await nodes.get('wifi-settings-form').listeners.submit({ preventDefault() {} });
   assert.equal(nodes.get('wifi-settings-status').dataset.error, 'true',
     'invalid Wi-Fi credentials must have a visible error state');
-  assert.equal(state.grant.value.requestId, wifiRequestId);
+  assert.equal(state.grant.value.requestId, stagedRequestId);
+  state.reading({ val: () => ({ ...safe, wifiConfigVersion: 2, updatedAt: Date.now() }) });
+  assert.equal(nodes.get('wifi-settings-button').disabled, true,
+    'old firmware cannot promise to save an unavailable network for later');
   state.reading({ val: () => ({ ...safe, updatedAt: Date.now() }) });
   assert.equal(nodes.get('wifi-settings-button').disabled, true,
     'the web must not send Wi-Fi requests to firmware without provisioning support');
@@ -511,13 +560,12 @@ test('authenticated controls send atomic commands and await device acknowledgeme
     child.textContent === 'new@example.com'));
   const revokeButton = newAccountRow.children.find(child => child.listeners.click);
   await revokeButton.listeners.click();
-  assert.deepEqual(state.grant, { path: 'operators/created-operator', value: false });
+  assert.deepEqual(state.grant, { path: 'operators/created-operator', value: null });
   state.readings.get('operators')({ val: () => ({ 'old-uid': true, 'created-operator': false }) });
-  const revokedRow = nodes.get('operator-list').children.find(row => row.children.some(child =>
-    child.textContent === 'new@example.com'));
-  const restoreButton = revokedRow.children.find(child => child.listeners.click);
-  await restoreButton.listeners.click();
-  assert.deepEqual(state.grant, { path: 'operators/created-operator', value: true });
+  assert.equal(nodes.get('operator-list').children.some(row => row.children.some(child =>
+    child.textContent === 'new@example.com')), false,
+  'revoked accounts, including legacy false entries, disappear from the list');
+  assert.equal(nodes.get('operator-count').textContent, '1');
 
   state.errors.get('operators')({ code: 'PERMISSION_DENIED' });
   assert.equal(nodes.get('operator-count').textContent, '—',
@@ -526,9 +574,11 @@ test('authenticated controls send atomic commands and await device acknowledgeme
 
   state.authChanged({ uid: 'operator', email: 'operator@example.com' });
   assert.equal(nodes.get('operator-management-section').hidden, true);
+  assert.equal(nodes.get('wifi-saved-list').children.some(item => item.children.some(child =>
+    child.textContent === 'old-password-123')), false, 'passwords are cleared when leaving owner account');
   assert.equal(state.readings.has('operators'), false, 'operator list listener is detached when owner leaves');
   const ownerWrite = state.grant;
-  await restoreButton.listeners.click();
+  await revokeButton.listeners.click();
   assert.deepEqual(state.grant, ownerWrite, 'a stale owner button cannot change rights after account switch');
 
   nodes.get('account-password').value = 'unsent-owner-password';

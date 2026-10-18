@@ -224,22 +224,26 @@ form input[type="email"]:focus, form input[type="password"]:focus, form input[ty
 .wifi-list-heading { margin: 0 0 6px !important; color: var(--text-2); font-size: 13px; }
 .wifi-saved-list { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0 0 18px; padding: 0; }
 .wifi-saved-list li { max-width: 100%; padding: 5px 9px; border: 1px solid var(--stroke); border-radius: var(--radius-sm); overflow-wrap: anywhere; font-size: 13px; }
+.wifi-saved-list li code { display: block; margin-top: 4px; color: var(--text); font-size: 13px; overflow-wrap: anywhere; user-select: text; }
 .wifi-saved-list li[data-active="true"] { border-color: var(--accent); color: var(--accent); }
+.wifi-summary > .button { margin-top: 10px; }
 .form-status { min-block-size: 2lh; margin-top: 6px; color: var(--success); }
 .form-status[data-error="true"] { color: var(--danger); }
 .form-status:empty { display: none; }
-.operator-card, #wifi-settings-section { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }
-.operator-card > h3 { grid-column: 1; grid-row: 1; }
-.operator-card > p.subtle:not(#operator-list-status) { grid-column: 1; grid-row: 2; margin-bottom: 12px; }
+.operator-card, #wifi-settings-section { position: relative; grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 0; }
+.operator-card::before, #wifi-settings-section::before { position: absolute; top: 20px; bottom: 16px; left: 50%; width: 1px; background: var(--stroke); content: ''; pointer-events: none; }
+.operator-card > h3 { grid-column: 1; grid-row: 1; max-width: 440px; }
+.operator-card > p.subtle:not(#operator-list-status) { grid-column: 1; grid-row: 2; max-width: 440px; margin-bottom: 12px; }
 #operator-list-status { grid-column: 1; grid-row: 3; margin: 0; }
 #operator-list-status:empty { display: none; }
-.operator-card .operator-list { grid-column: 2; grid-row: 1 / span 3; align-self: start; padding-left: 24px; border-left: 1px solid var(--stroke); }
-#operator-action-status { grid-column: 2; grid-row: 4; }
-.wifi-summary { grid-column: 1; grid-row: 1; align-self: start; min-width: 0; }
+.operator-card .operator-list { grid-column: 2; grid-row: 1 / span 3; align-self: start; max-width: 472px; padding-left: 32px; }
+#operator-action-status { grid-column: 2; grid-row: 4; max-width: 472px; padding-left: 32px; }
+.wifi-summary { grid-column: 1; grid-row: 1; align-self: start; min-width: 0; max-width: 440px; }
 .wifi-summary > p.subtle { margin-bottom: 18px; }
 .wifi-summary > .wifi-saved-list { margin-bottom: 0; }
-#wifi-settings-form { grid-column: 2; grid-row: 1; max-width: none; padding-left: 24px; border-left: 1px solid var(--stroke); }
+#wifi-settings-form { grid-column: 2; grid-row: 1; max-width: 472px; padding-left: 32px; }
 .wifi-form-title { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+.wifi-form-help { margin: 0 0 12px; font-size: 13px; }
 .operator-card .form-status { min-block-size: 1lh; margin-top: 4px; }
 .operator-list { list-style: none; margin: 0; padding: 0; }
 .operator-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 12px 0; border-top: 1px solid var(--stroke); }
@@ -305,6 +309,8 @@ form input[type="email"]:focus, form input[type="password"]:focus, form input[ty
 .history-heading { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .history-heading h2 { font-size: 19px; font-weight: 650; }
 .history-heading p { margin-top: 3px; font-size: 13px; }
+.history-range { flex-wrap: nowrap; }
+.history-range .segment { justify-content: center; min-height: 36px; white-space: nowrap; }
 .history-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 .history-stat { min-width: 0; padding: 15px 16px; border-top: 3px solid var(--stroke-strong); }
 .history-stat h3 { font-size: 12px; font-weight: 600; color: var(--text-2); }
@@ -315,18 +321,24 @@ form input[type="email"]:focus, form input[type="password"]:focus, form input[ty
 .history-stat-flame, .history-stat-gas { border-top-color: var(--danger); }
 .history-stat-user { border-top-color: var(--accent); }
 .history-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.history-chart { min-width: 0; padding: 14px 16px 12px; }
+.history-chart { position: relative; min-width: 0; padding: 14px 16px 12px; }
 .history-chart-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .history-chart h3 { font-size: 14px; font-weight: 600; }
 .history-chart-heading span { font-size: 12px; text-align: right; }
-.history-chart svg { display: block; width: 100%; height: 150px; margin-top: 10px; overflow: visible; }
+.history-chart-plot { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 6px; height: 150px; margin-top: 10px; }
+.history-chart-scale { display: flex; flex-direction: column; justify-content: space-between; padding: 13px 0; color: var(--text-2); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.history-chart svg { display: block; width: 100%; height: 150px; overflow: visible; }
 .history-chart-grid { stroke: var(--stroke-strong); stroke-width: 1; }
 .history-chart-line { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .history-chart-temperature .history-chart-line { stroke: var(--caution); }
 .history-chart-humidity .history-chart-line { stroke: var(--fan-active); }
+.history-chart-points circle { fill: var(--card); stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+.history-chart-temperature .history-chart-points circle { stroke: var(--caution); }
+.history-chart-humidity .history-chart-points circle { stroke: var(--fan-active); }
+.history-chart-axis { display: flex; justify-content: space-between; gap: 8px; margin-left: 60px; font-size: 11px; font-variant-numeric: tabular-nums; }
 .history-chart-empty { display: none; font-size: 12px; text-align: center; }
-.history-chart:has(.history-chart-line[d=""]) svg { display: none; }
-.history-chart:has(.history-chart-line[d=""]) .history-chart-empty { display: block; padding: 40px 0; }
+.history-chart:has(.history-chart-line[d=""]) .history-chart-plot { visibility: hidden; }
+.history-chart:has(.history-chart-line[d=""]) .history-chart-empty { position: absolute; top: 50%; left: 16px; right: 16px; display: block; transform: translateY(-50%); }
 .history-period { margin-top: -10px; font-size: 12px; }
 .history-activity { position: relative; min-width: 0; padding: 14px 16px 12px; }
 .history-activity-heading { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; }
@@ -335,18 +347,19 @@ form input[type="email"]:focus, form input[type="password"]:focus, form input[ty
 .history-legend span::before { display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 2px; content: ''; background: var(--accent); }
 .history-legend .history-legend-flame::before { background: var(--danger); }
 .history-legend .history-legend-gas::before { background: var(--caution); }
-.history-activity-bars { display: flex; align-items: stretch; gap: 8px; height: 140px; margin-top: 12px; padding: 0 4px; border-bottom: 1px solid var(--stroke-strong); background: repeating-linear-gradient(to top, transparent 0, transparent calc(50% - 1px), var(--stroke) 50%, transparent calc(50% + 1px)); }
-.history-activity-bin { display: flex; align-items: flex-end; justify-content: center; flex: 1; min-width: 0; gap: 2px; }
-.history-activity-bar { width: min(18px, 30%); border-radius: 2px 2px 0 0; }
+.history-activity-scroll { overflow-x: auto; overscroll-behavior-inline: contain; }
+.history-activity-bars { display: grid; grid-template-columns: repeat(var(--activity-days, 7), minmax(0, 1fr)); min-width: max(100%, calc(var(--activity-days, 7) * 46px)); margin-top: 12px; }
+.history-activity-bin { min-width: 0; }
+.history-activity-column { display: flex; align-items: flex-end; justify-content: center; gap: 2px; height: 140px; border-bottom: 1px solid var(--stroke-strong); background: repeating-linear-gradient(to top, transparent 0, transparent calc(50% - 1px), var(--stroke) 50%, transparent calc(50% + 1px)); }
+.history-activity-date { display: block; padding: 5px 0 4px; color: var(--text-2); font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; white-space: nowrap; }
+.history-activity-bar { position: relative; width: min(24px, 40%); border-radius: 2px 2px 0 0; }
 .history-activity-bar-flame { background: var(--danger); }
 .history-activity-bar-gas { background: var(--caution); }
-.history-activity-bar-user { background: var(--accent); }
+.history-activity-value { position: absolute; left: 50%; bottom: calc(100% + 3px); transform: translateX(-50%); color: var(--text-1); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; white-space: nowrap; }
 .history-activity .history-chart-empty { position: absolute; left: 16px; right: 16px; top: 105px; display: block; }
-.history-activity-axis { display: flex; justify-content: space-between; margin-top: 5px; font-size: 11px; }
 .history-events-title { font-size: 15px; font-weight: 600; }
 .history-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .history-clear { display: flex; flex-wrap: wrap; gap: 4px; }
-.history-note { font-size: 12px; margin-top: -8px; }
 .history-status { min-height: 0; font-size: 13px; color: var(--text-2); }
 .history-status:empty { display: none; }
 .history-card { block-size: clamp(240px, 45vh, 420px); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
@@ -385,7 +398,9 @@ form input[type="email"]:focus, form input[type="password"]:focus, form input[ty
   .account-grid { grid-template-columns: 1fr; }
   .account-card { padding: 20px 20px 16px; }
   .operator-card, #wifi-settings-section { display: block; }
-  .operator-card .operator-list, #wifi-settings-form { margin-top: 12px; padding: 14px 0 0; border-left: 0; border-top: 1px solid var(--stroke); }
+  .operator-card::before, #wifi-settings-section::before { display: none; }
+  .operator-card .operator-list, #wifi-settings-form { max-width: none; margin-top: 12px; padding: 14px 0 0; border-top: 1px solid var(--stroke); }
+  #operator-action-status { max-width: none; padding-left: 0; }
   .operator-row { grid-template-columns: minmax(0, 1fr) auto; }
   .operator-row .button { grid-column: 1 / -1; grid-row: 3; justify-self: start; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -394,6 +409,7 @@ form input[type="email"]:focus, form input[type="password"]:focus, form input[ty
   .setting-row > .segmented, .setting-row > .button { margin-left: 46px; }
   .history-item { grid-template-columns: auto minmax(0, 1fr); }
   .history-item time { grid-column: 2; }
+  .history-stat-flame p, .history-stat-gas p, .history-stat-user p, .history-period { min-height: 2lh; }
   .history-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .history-stat-user { grid-column: 1 / -1; }
   .history-charts { grid-template-columns: 1fr; }

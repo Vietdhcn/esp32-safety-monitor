@@ -33,7 +33,7 @@
             ".validate": "newData.val() === 2"
           },
           "wifiConfigVersion": {
-            ".validate": "newData.val() === 1 || newData.val() === 2"
+            ".validate": "newData.val() === 1 || newData.val() === 2 || newData.val() === 3 || newData.val() === 4"
           },
           "wifiSsid": {
             ".validate": "newData.isString() && newData.val().length <= 32"
@@ -47,7 +47,7 @@
             ".validate": "newData.isString() && newData.val().length <= 64"
           },
           "wifiChangeStatus": {
-            ".validate": "newData.val() === 'connecting' || newData.val() === 'applied' || newData.val() === 'failed'"
+            ".validate": "newData.val() === 'connecting' || newData.val() === 'applied' || newData.val() === 'saved' || newData.val() === 'failed'"
           },
           "muteUntil": {
             ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= now + 35000"
@@ -153,9 +153,36 @@
               ".validate": false
             }
           },
+          "wifiReveal": {
+            ".write": "auth != null && auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2' && newData.exists()",
+            ".validate": "newData.hasChildren(['requestId'])",
+            "requestId": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64 && newData.val().matches(/^[A-Za-z0-9_-]+$/)"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
           "$other": {
             ".validate": false
           }
+        },
+        "wifiReveal": {
+          ".read": "auth != null && auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2'",
+          ".write": "auth != null && ((auth.uid === 'NfMfoVPKh3fAHQedBJ93DumnkMn1' && newData.exists()) || ((auth.uid === 'NfMfoVPKh3fAHQedBJ93DumnkMn1' || auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2') && !newData.exists()))",
+          ".validate": "newData.hasChildren(['requestId', 'networks'])",
+          "requestId": {
+            ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64"
+          },
+          "networks": {
+            "$index": {
+              ".validate": "newData.hasChildren(['ssid', 'password'])",
+              "ssid": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 32" },
+              "password": { ".validate": "newData.isString() && newData.val().length >= 8 && newData.val().length <= 63" },
+              "$other": { ".validate": false }
+            }
+          },
+          "$other": { ".validate": false }
         }
       }
     },

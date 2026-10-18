@@ -122,7 +122,56 @@ export function nhomHoatDong(events, from, to, count = 12) {
   return bins;
 }
 
-export function duongBieuDo(samples, key, from, to) {
+export function nhomCanhBaoTheoNgay(events, from, to) {
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return [];
+  const day = new Date(from);
+  day.setHours(0, 0, 0, 0);
+  const bins = [];
+  const byDay = new Map();
+  while (day.getTime() <= to) {
+    const bin = { at: day.getTime(), flame: 0, gas: 0 };
+    bins.push(bin);
+    byDay.set(bin.at, bin);
+    day.setDate(day.getDate() + 1);
+  }
+  for (const entry of events) {
+    if (!Number.isFinite(entry.at) || entry.at < from || entry.at > to || entry.source === 'user') continue;
+    const eventDay = new Date(entry.at);
+    eventDay.setHours(0, 0, 0, 0);
+    const bin = byDay.get(eventDay.getTime());
+    if (!bin) continue;
+    if (entry.title === 'Phát hiện lửa') bin.flame++;
+    else if (entry.title === 'Phát hiện khí gas') bin.gas++;
+  }
+  return bins;
+}
+
+export function trungBinhMauTheoNgay(samples, from, to) {
+  const byDay = new Map();
+  for (const sample of samples) {
+    if (!Number.isFinite(sample?.at) || sample.at < from || sample.at > to) continue;
+    const day = new Date(sample.at);
+    day.setHours(0, 0, 0, 0);
+    const at = day.getTime();
+    if (!byDay.has(at)) byDay.set(at, { at, tempSum: 0, tempCount: 0, humiditySum: 0, humidityCount: 0 });
+    const bucket = byDay.get(at);
+    if (Number.isFinite(sample.temperatureC)) {
+      bucket.tempSum += sample.temperatureC;
+      bucket.tempCount++;
+    }
+    if (Number.isFinite(sample.humidityPct)) {
+      bucket.humiditySum += sample.humidityPct;
+      bucket.humidityCount++;
+    }
+  }
+  return [...byDay.values()].sort((a, b) => a.at - b.at).map(bucket => ({
+    at: bucket.at,
+    temperatureC: bucket.tempCount ? bucket.tempSum / bucket.tempCount : null,
+    humidityPct: bucket.humidityCount ? bucket.humiditySum / bucket.humidityCount : null
+  }));
+}
+
+export function duongBieuDo(samples, key, from, to, maxGapMs = Infinity) {
   const points = samples.filter(sample => sample.at >= from && sample.at <= to && Number.isFinite(sample[key]));
   if (!points.length) return '';
   let min = Infinity;
@@ -144,12 +193,15 @@ export function duongBieuDo(samples, key, from, to) {
     shown.push(...(low.at <= high.at ? [low, high] : [high, low]).filter((point, index, array) => index === 0 || point !== array[0]));
   }
   const span = Math.max(max - min, 1);
-  const firstAt = points[0].at;
-  const lastAt = points.at(-1).at;
-  const timeSpan = Math.max(lastAt - firstAt, 1);
-  return shown.map((sample, index) => {
-    const x = firstAt === lastAt ? 300 : 10 + (sample.at - firstAt) / timeSpan * 580;
+  const timeSpan = Math.max(to - from, 1);
+  const commands = [];
+  shown.forEach((sample, index) => {
+    const x = 10 + (sample.at - from) / timeSpan * 580;
     const y = 140 - (sample[key] - min) / span * 120;
-    return `${index ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`;
-  }).join(' ');
+    const start = index === 0 || sample.at - shown[index - 1].at > maxGapMs;
+    const end = index === shown.length - 1 || shown[index + 1].at - sample.at > maxGapMs;
+    commands.push(`${start ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`);
+    if (start && end) commands.push(`L ${(x + 0.1).toFixed(1)} ${y.toFixed(1)}`);
+  });
+  return commands.join(' ');
 }

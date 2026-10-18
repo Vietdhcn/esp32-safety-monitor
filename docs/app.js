@@ -1,6 +1,6 @@
 import { firebaseConfig, deviceId, ownerUid } from './config.js?v=20261018-1';
-import { chuanHoaDuLieu, duLieuCu, thietBiNgoaiTuyen, laMoPhongNoiBo, taoDuLieuMoPhong, cacCheDo, luaChonMauDen, lenhDen, coTheDieuKhien, coTheTamTat, dangTamTat, tamTatTatCa, laLogicMoi, lenhHopLe, tienDoLenh, loiCauHinhWifi } from './dashboard-model.js?v=20261018-5';
-import { cacThayDoiLichSu, themLichSu, lichSuThaoTac, locLichSu, xoaLichSuTheoNguon, lamSachLichSuHeThongCu, mauDoLichSu, thongKeLichSu, duongBieuDo, nhomHoatDong } from './history-model.js?v=20261018-2';
+import { chuanHoaDuLieu, duLieuCu, thietBiNgoaiTuyen, laMoPhongNoiBo, taoDuLieuMoPhong, cacCheDo, luaChonMauDen, lenhDen, coTheDieuKhien, coTheTamTat, dangTamTat, tamTatTatCa, laLogicMoi, lenhHopLe, tienDoLenh, loiCauHinhWifi } from './dashboard-model.js?v=20261018-6';
+import { cacThayDoiLichSu, themLichSu, lichSuThaoTac, locLichSu, xoaLichSuTheoNguon, lamSachLichSuHeThongCu, mauDoLichSu, thongKeLichSu, duongBieuDo, nhomCanhBaoTheoNgay, trungBinhMauTheoNgay } from './history-model.js?v=20261018-4';
 import { taoKhoMauLichSu } from './history-samples-store.js?v=20261018-2';
 import { taiLichSuTheoThietBi } from './history-device-store.js?v=20261018-1';
 
@@ -23,16 +23,22 @@ let wifiDangCho = null;
 let thongBaoWifi = '';
 let loiWifi = false;
 let wifiListKey = '';
+let huyTheoDoiWifiReveal = null;
+let wifiRevealRequest = null;
+let wifiRevealed = null;
+let wifiRevealTimer = null;
+let wifiRevealMessage = '';
+let wifiRevealError = false;
 let guiLenh = async () => {};
 let khoaLichSu = '';
 let cacMucLichSu = [];
 let nguonLichSu = 'all';
 let khoMauLichSu = null;
-let phamViLichSu = 'day';
 let trangLichSu = 1;
 let phutMauCuoi = null;
 let coMauLichSu = false;
 let lanTaiBieuDo = 0;
+let phamViBieuDo = 'today';
 let taiKhoanLichSu = null;
 let duLieuTruoc = null;
 let boQuaLanDocDau = false;
@@ -67,6 +73,8 @@ for (const name of tenCacTab) {
 }
 
 const dinhDangNgayGio = new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'medium' });
+const dinhDangNgay = new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short' });
+const dinhDangGioPhut = new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit' });
 function capNhatDongHo() {
   const now = new Date();
   $('current-time').textContent = new Intl.DateTimeFormat('vi-VN', { timeStyle: 'medium' }).format(now);
@@ -154,12 +162,22 @@ $('history-page-next').addEventListener('click', () => {
   hienThiLichSu();
 });
 
-const doDaiPhamVi = { day: 24 * 60 * 60_000, week: 7 * 24 * 60 * 60_000, month: 30 * 24 * 60 * 60_000 };
-for (const range of Object.keys(doDaiPhamVi)) {
-  $('history-range-' + range).addEventListener('click', () => {
-    phamViLichSu = range;
-    for (const name of Object.keys(doDaiPhamVi))
-      $('history-range-' + name).setAttribute('aria-pressed', String(name === range));
+function hienThiTyLeBieuDo(id, stats, unit) {
+  const labels = $(id).children;
+  if (!stats.count) {
+    for (const label of labels) label.textContent = '—';
+    return;
+  }
+  const top = stats.min + Math.max(stats.max - stats.min, 1);
+  for (const [index, value] of [top, (top + stats.min) / 2, stats.min].entries())
+    labels[index].textContent = `${value.toFixed(1)} ${unit}`;
+}
+
+for (const period of ['today', 'week', 'month']) {
+  $(`history-range-${period}`).addEventListener('click', () => {
+    phamViBieuDo = period;
+    for (const value of ['today', 'week', 'month'])
+      $(`history-range-${value}`).setAttribute('aria-pressed', String(value === period));
     void hienThiBangLichSu();
   });
 }
@@ -168,54 +186,96 @@ async function hienThiBangLichSu() {
   if (!khoMauLichSu) return;
   const token = ++lanTaiBieuDo;
   const to = Date.now();
-  const from = to - doDaiPhamVi[phamViLichSu];
+  const firstDay = new Date(to);
+  firstDay.setHours(0, 0, 0, 0);
+  firstDay.setDate(firstDay.getDate() - (phamViBieuDo === 'month' ? 29 : phamViBieuDo === 'week' ? 6 : 0));
+  const oldestAllowed = firstDay.getTime();
   try {
-    const [samples, hasAny] = await Promise.all([khoMauLichSu.range(from, to), khoMauLichSu.hasAny()]);
+    const [samples, hasAny] = await Promise.all([khoMauLichSu.range(oldestAllowed, to), khoMauLichSu.hasAny()]);
     if (token !== lanTaiBieuDo) return;
+    const recentAlerts = cacMucLichSu.filter(entry => entry.at >= oldestAllowed && entry.at <= to &&
+      entry.source !== 'user' && ['Phát hiện lửa', 'Phát hiện khí gas'].includes(entry.title));
     coMauLichSu = hasAny;
     $('clear-history-all').disabled = cacMucLichSu.length === 0 && !coMauLichSu;
-    const summary = thongKeLichSu(samples, cacMucLichSu, from, to);
+    const summary = thongKeLichSu(samples, cacMucLichSu, oldestAllowed, to);
+    const chartSamples = phamViBieuDo === 'today' ? samples : trungBinhMauTheoNgay(samples, oldestAllowed, to);
+    const chartStats = thongKeLichSu(chartSamples, [], oldestAllowed, to);
     const format = (value, unit) => value == null ? '—' : `${value.toFixed(1)} ${unit}`;
     datChu('history-temp-current', format(summary.temperature.latest, '°C'));
     datChu('history-humidity-current', format(summary.humidity.latest, '%'));
     datChu('history-temp-range', summary.temperature.count ?
-      `Thấp nhất ${format(summary.temperature.min, '°C')} · Cao nhất ${format(summary.temperature.max, '°C')}` : 'Chưa có dữ liệu');
+      `${summary.temperature.min.toFixed(1)}–${summary.temperature.max.toFixed(1)} °C` : 'Chưa có dữ liệu');
     datChu('history-humidity-range', summary.humidity.count ?
-      `Thấp nhất ${format(summary.humidity.min, '%')} · Cao nhất ${format(summary.humidity.max, '%')}` : 'Chưa có dữ liệu');
-    datChu('history-temp-average', summary.temperature.count ? `Trung bình ${format(summary.temperature.average, '°C')}` : '—');
-    datChu('history-humidity-average', summary.humidity.count ? `Trung bình ${format(summary.humidity.average, '%')}` : '—');
-    $('history-temp-line').setAttribute('d', duongBieuDo(samples, 'temperatureC', from, to));
-    $('history-humidity-line').setAttribute('d', duongBieuDo(samples, 'humidityPct', from, to));
+      `${summary.humidity.min.toFixed(1)}–${summary.humidity.max.toFixed(1)} %` : 'Chưa có dữ liệu');
+    const averageLabel = phamViBieuDo === 'today' ? 'Trung bình' : 'TB các ngày';
+    datChu('history-temp-average', chartStats.temperature.count ? `${averageLabel} ${format(chartStats.temperature.average, '°C')}` : '—');
+    datChu('history-humidity-average', chartStats.humidity.count ? `${averageLabel} ${format(chartStats.humidity.average, '%')}` : '—');
+    hienThiTyLeBieuDo('history-temp-scale', chartStats.temperature, '°C');
+    hienThiTyLeBieuDo('history-humidity-scale', chartStats.humidity, '%');
+    const chartGap = phamViBieuDo === 'today' ? 10 * 60_000 : 36 * 60 * 60_000;
+    $('history-temp-line').setAttribute('d', duongBieuDo(chartSamples, 'temperatureC', oldestAllowed, to, chartGap));
+    $('history-humidity-line').setAttribute('d', duongBieuDo(chartSamples, 'humidityPct', oldestAllowed, to, chartGap));
+    for (const axis of document.querySelectorAll('.history-chart-axis')) {
+      axis.querySelector('.history-axis-start').textContent = phamViBieuDo === 'today' ? '00:00' :
+        `${String(firstDay.getDate()).padStart(2, '0')}/${String(firstDay.getMonth() + 1).padStart(2, '0')}`;
+      axis.querySelector('.history-axis-end').textContent = phamViBieuDo === 'today' ? dinhDangGioPhut.format(new Date(to)) :
+        `${String(new Date(to).getDate()).padStart(2, '0')}/${String(new Date(to).getMonth() + 1).padStart(2, '0')}`;
+    }
+    const periodText = { today: 'hôm nay', week: '7 ngày gần đây', month: '30 ngày gần đây' }[phamViBieuDo];
     datChu('history-period', samples.length ?
-      `Số đo từ ${dinhDangNgayGio.format(new Date(samples[0].at))} đến ${dinhDangNgayGio.format(new Date(samples.at(-1).at))} trong khoảng đã chọn.` :
-      'Chưa có số đo trong khoảng thời gian này.');
+      `${phamViBieuDo === 'today' ? 'Mỗi điểm là số đo theo phút' : 'Mỗi điểm là trung bình của một ngày'}; có dữ liệu từ ${dinhDangNgayGio.format(new Date(samples[0].at))} đến ${dinhDangNgayGio.format(new Date(samples.at(-1).at))}.` :
+      `Chưa có số đo trong ${periodText}.`);
     datChu('history-flame-count', String(summary.alerts.flame));
     datChu('history-gas-count', String(summary.alerts.gas));
     datChu('history-user-range-count', String(summary.alerts.user));
-    const bins = nhomHoatDong(cacMucLichSu, from, to);
-    const maxCount = Math.max(1, ...bins.flatMap(bin => [bin.flame, bin.gas, bin.user]));
-    const columns = bins.map((bin, index) => {
+    const bins = nhomCanhBaoTheoNgay(recentAlerts, oldestAllowed, to);
+    const maxCount = Math.max(1, ...bins.flatMap(bin => [bin.flame, bin.gas]));
+    const columns = bins.map(bin => {
       const column = document.createElement('div');
       column.className = 'history-activity-bin';
-      column.title = `${dinhDangNgayGio.format(new Date(from + index * (to - from) / bins.length))}: Lửa ${bin.flame}, khí gas ${bin.gas}, bạn nhấn ${bin.user}`;
-      for (const category of ['flame', 'gas', 'user']) {
+      column.title = `Ngày ${dinhDangNgay.format(new Date(bin.at))}: Lửa ${bin.flame}, khí gas ${bin.gas}`;
+      const bars = document.createElement('div');
+      bars.className = 'history-activity-column';
+      for (const category of ['flame', 'gas']) {
         const bar = document.createElement('span');
         bar.className = `history-activity-bar history-activity-bar-${category}`;
-        bar.style.height = bin[category] ? `${Math.max(3, bin[category] / maxCount * 100)}%` : '0';
-        column.append(bar);
+        bar.style.height = bin[category] ? `${Math.max(4, bin[category] / maxCount * 110)}px` : '0';
+        if (bin[category]) {
+          const value = document.createElement('span');
+          value.className = 'history-activity-value';
+          value.textContent = String(bin[category]);
+          bar.append(value);
+        }
+        bars.append(bar);
       }
+      const day = new Date(bin.at);
+      const date = document.createElement('time');
+      date.className = 'history-activity-date';
+      date.dateTime = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+      date.textContent = `${String(day.getDate()).padStart(2, '0')}/${String(day.getMonth() + 1).padStart(2, '0')}`;
+      column.append(bars, date);
       return column;
     });
+    const scroll = $('history-activity-scroll');
+    const wasAtEnd = !scroll.dataset.scrolledInitially ||
+      scroll.scrollLeft >= scroll.scrollWidth - scroll.clientWidth - 2;
+    $('history-activity-bars').style.setProperty('--activity-days', String(bins.length));
     $('history-activity-bars').replaceChildren(...columns);
+    if (!$('history-view').hidden) {
+      if (wasAtEnd) scroll.scrollLeft = scroll.scrollWidth - scroll.clientWidth;
+      scroll.dataset.scrolledInitially = 'true';
+    }
+    const dailyAlerts = bins.filter(bin => bin.flame || bin.gas)
+      .map(bin => `${dinhDangNgay.format(new Date(bin.at))}: lửa ${bin.flame}, khí gas ${bin.gas}`).join('; ');
     $('history-activity-bars').setAttribute('aria-label',
-      `Trong khoảng đã chọn: ${summary.alerts.flame} cảnh báo lửa, ${summary.alerts.gas} cảnh báo khí gas, ${summary.alerts.user} thao tác.`);
-    $('history-activity-empty').hidden = !bins.every(bin => !bin.flame && !bin.gas && !bin.user);
+      dailyAlerts ? `Cảnh báo theo ngày. ${dailyAlerts}.` : 'Không có cảnh báo lửa hoặc khí gas trong các ngày hiển thị.');
+    $('history-activity-empty').hidden = !bins.every(bin => !bin.flame && !bin.gas);
     for (const [id, title, empty] of [
       ['history-flame-last', 'Phát hiện lửa', 'Chưa ghi nhận'],
       ['history-gas-last', 'Phát hiện khí gas', 'Chưa ghi nhận'],
       ['history-user-last', null, 'Chưa có thao tác']
     ]) {
-      const latest = cacMucLichSu.find(entry => entry.at >= from && entry.at <= to &&
+      const latest = cacMucLichSu.find(entry => entry.at >= oldestAllowed && entry.at <= to &&
         (title ? entry.source !== 'user' && entry.title === title : entry.source === 'user'));
       datChu(id, latest ? `Gần nhất ${dinhDangNgayGio.format(new Date(latest.at))}` : empty);
     }
@@ -339,13 +399,24 @@ function hienSoDo(id, value, suffix = '') {
   datChu(id, value == null ? '—' : `${value}${suffix}`);
 }
 
+function anMatKhauWifi() {
+  if (wifiRevealTimer) clearTimeout(wifiRevealTimer);
+  wifiRevealTimer = null;
+  wifiRevealRequest = null;
+  wifiRevealed = null;
+  wifiRevealMessage = '';
+  wifiRevealError = false;
+}
+
 function hienThiWifi() {
   if (wifiDangCho && duLieuThietBi.wifiChangeId === wifiDangCho.id &&
-      ['applied', 'failed'].includes(duLieuThietBi.wifiChangeStatus)) {
+      ['applied', 'saved', 'failed'].includes(duLieuThietBi.wifiChangeStatus)) {
     loiWifi = duLieuThietBi.wifiChangeStatus === 'failed';
     thongBaoWifi = duLieuThietBi.wifiChangeStatus === 'applied' ?
       'ESP32 đã kết nối và lưu Wi-Fi mới; khi mất kết nối sẽ thử các mạng đã lưu.' :
-      'Không kết nối được mạng mới; ESP32 đã thử các mạng đã lưu.';
+      duLieuThietBi.wifiChangeStatus === 'saved' ?
+        'ESP32 đã lưu Wi-Fi mới và sẽ kết nối khi mạng khả dụng.' :
+        'Không lưu được mạng mới; hãy kiểm tra cấu hình và thử lại.';
     wifiDangCho = null;
   }
   if (wifiDangCho && Date.now() - wifiDangCho.sentAt > 90_000) {
@@ -354,12 +425,19 @@ function hienThiWifi() {
     thongBaoWifi = 'Chưa nhận được xác nhận. Kiểm tra kết nối của ESP32 trước khi thử lại.';
   }
   datChu('wifi-current-ssid', duLieuThietBi.wifiSsid || 'Chưa có dữ liệu');
-  const listKey = JSON.stringify([duLieuThietBi.wifiSavedSsids, duLieuThietBi.wifiSsid]);
+  const listKey = JSON.stringify([duLieuThietBi.wifiSavedSsids, duLieuThietBi.wifiSsid, wifiRevealed]);
   if (wifiListKey !== listKey) {
     wifiListKey = listKey;
     const rows = duLieuThietBi.wifiSavedSsids.map(ssid => {
       const item = document.createElement('li');
-      item.textContent = ssid;
+      const name = document.createElement('span');
+      name.textContent = ssid;
+      item.append(name);
+      if (wifiRevealed?.[ssid]) {
+        const password = document.createElement('code');
+        password.textContent = wifiRevealed[ssid];
+        item.append(password);
+      }
       item.dataset.active = String(ssid === duLieuThietBi.wifiSsid);
       return item;
     });
@@ -370,11 +448,20 @@ function hienThiWifi() {
     }
     $('wifi-saved-list').replaceChildren(...rows);
   }
-  $('wifi-settings-button').disabled = !chuSoHuuDangNhap || duLieuThietBi.wifiConfigVersion !== 2 ||
+  $('wifi-settings-button').disabled = !chuSoHuuDangNhap || duLieuThietBi.wifiConfigVersion < 3 ||
     duLieuCu(duLieuThietBi.updatedAt) || Boolean(wifiDangCho);
-  const canNapFirmware = duLieuThietBi.wifiConfigVersion !== 2;
-  const message = wifiDangCho ? 'Đang chờ ESP32 thử Wi-Fi mới và xác nhận…' : thongBaoWifi ||
-    (canNapFirmware ? 'Cần nạp firmware hỗ trợ nhiều mạng Wi-Fi một lần.' :
+  const revealButton = $('reveal-wifi-passwords');
+  revealButton.textContent = wifiRevealed ? 'Ẩn mật khẩu đã lưu' : 'Hiện mật khẩu đã lưu';
+  revealButton.disabled = !chuSoHuuDangNhap || Boolean(wifiRevealRequest) ||
+    (!wifiRevealed && (duLieuThietBi.wifiConfigVersion < 4 ||
+      duLieuCu(duLieuThietBi.updatedAt) || !duLieuThietBi.wifiSavedSsids.length));
+  datChu('wifi-reveal-status', wifiRevealMessage ||
+    (chuSoHuuDangNhap && duLieuThietBi.wifiConfigVersion >= 2 && duLieuThietBi.wifiConfigVersion < 4 ?
+      'Cần nạp firmware mới để xem mật khẩu đã lưu.' : ''));
+  $('wifi-reveal-status').dataset.error = String(wifiRevealError);
+  const canNapFirmware = duLieuThietBi.wifiConfigVersion < 3;
+  const message = wifiDangCho ? 'Đang chờ ESP32 lưu Wi-Fi và xác nhận…' : thongBaoWifi ||
+    (canNapFirmware ? 'Cần nạp firmware mới để lưu trước mạng Wi-Fi chưa xuất hiện.' :
       duLieuCu(duLieuThietBi.updatedAt) ? 'ESP32 cần trực tuyến để nhận cấu hình mới.' : '');
   datChu('wifi-settings-status', message);
   $('wifi-settings-status').dataset.error = String(!wifiDangCho && (loiWifi || canNapFirmware));
@@ -591,10 +678,10 @@ if (cheDoMoPhong) {
     }
     if (quyenOperator === null) return;
     const hoSo = hoSoOperator || {};
-    const rows = Object.entries(quyenOperator).filter(([, value]) => typeof value === 'boolean')
-      .sort(([uidA, activeA], [uidB, activeB]) => Number(activeB) - Number(activeA) ||
+    const rows = Object.entries(quyenOperator).filter(([, value]) => value === true)
+      .sort(([uidA], [uidB]) =>
         (hoSo[uidA]?.email || uidA).localeCompare(hoSo[uidB]?.email || uidB, 'vi'))
-      .map(([uid, active]) => {
+      .map(([uid]) => {
         const row = document.createElement('li');
         row.className = 'operator-row';
         const name = document.createElement('strong');
@@ -603,19 +690,19 @@ if (cheDoMoPhong) {
         detail.textContent = hoSo[uid]?.email ? `UID: ${uid}` : 'Chưa lưu email cho tài khoản cũ';
         const status = document.createElement('span');
         status.className = 'operator-state';
-        status.dataset.active = String(active);
-        status.textContent = active ? 'Đang có quyền' : 'Đã thu hồi';
+        status.dataset.active = 'true';
+        status.textContent = 'Đang có quyền';
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'button';
-        button.textContent = active ? 'Thu hồi quyền' : 'Cấp lại quyền';
+        button.textContent = 'Thu hồi quyền';
         button.addEventListener('click', async () => {
           if (button.disabled || auth.currentUser?.uid !== ownerUid) return;
           button.disabled = true;
           trangThaiTaiKhoan('operator-action-status', 'Đang cập nhật quyền…');
           try {
-            await set(ref(coSoDuLieu, `operators/${uid}`), !active);
-            trangThaiTaiKhoan('operator-action-status', active ? 'Đã thu hồi quyền truy cập thiết bị.' : 'Đã cấp lại quyền truy cập thiết bị.');
+            await set(ref(coSoDuLieu, `operators/${uid}`), null);
+            trangThaiTaiKhoan('operator-action-status', 'Đã thu hồi quyền truy cập thiết bị.');
           } catch {
             trangThaiTaiKhoan('operator-action-status', 'Không cập nhật được quyền. Kiểm tra kết nối và Database Rules.', true);
           } finally {
@@ -657,10 +744,38 @@ if (cheDoMoPhong) {
     });
   }
 
+  function theoDoiWifiReveal() {
+    huyTheoDoiWifiReveal = onValue(ref(coSoDuLieu, `devices/${deviceId}/wifiReveal`), snapshot => {
+      const reply = snapshot.val();
+      if (!chuSoHuuDangNhap || !wifiRevealRequest || reply?.requestId !== wifiRevealRequest) return;
+      const saved = new Set(duLieuThietBi.wifiSavedSsids);
+      const passwords = Object.create(null);
+      for (const network of Array.isArray(reply.networks) ? reply.networks : []) {
+        if (saved.has(network?.ssid) && typeof network.password === 'string' &&
+            network.password.length >= 8 && network.password.length <= 63)
+          passwords[network.ssid] = network.password;
+      }
+      if (wifiRevealTimer) clearTimeout(wifiRevealTimer);
+      wifiRevealRequest = null;
+      wifiRevealed = passwords;
+      wifiRevealMessage = 'Mật khẩu sẽ tự ẩn sau 60 giây.';
+      wifiRevealTimer = setTimeout(() => { anMatKhauWifi(); hienThiWifi(); }, 60_000);
+      hienThiWifi();
+      void set(ref(coSoDuLieu, `devices/${deviceId}/wifiReveal`), null).catch(() => {});
+    }, () => {
+      if (!chuSoHuuDangNhap) return;
+      anMatKhauWifi();
+      wifiRevealMessage = 'Không đọc được mật khẩu đã lưu. Kiểm tra Database Rules.';
+      wifiRevealError = true;
+      hienThiWifi();
+    });
+  }
+
   onAuthStateChanged(auth, user => {
     const daDangNhap = Boolean(user);
     taiKhoanLichSu = user ? { uid: user.uid, email: user.email || null } : null;
     chuSoHuuDangNhap = daDangNhap && user.uid === ownerUid;
+    anMatKhauWifi();
     wifiDangCho = null;
     thongBaoWifi = '';
     loiWifi = false;
@@ -684,8 +799,10 @@ if (cheDoMoPhong) {
     datChu('operator-action-status', '');
     if (huyTheoDoiQuyen) huyTheoDoiQuyen();
     if (huyTheoDoiHoSo) huyTheoDoiHoSo();
+    if (huyTheoDoiWifiReveal) huyTheoDoiWifiReveal();
     huyTheoDoiQuyen = null;
     huyTheoDoiHoSo = null;
+    huyTheoDoiWifiReveal = null;
     quyenOperator = null;
     hoSoOperator = null;
     loiDocQuyen = false;
@@ -718,7 +835,7 @@ if (cheDoMoPhong) {
       $('connection-label').textContent = 'Chưa đăng nhập';
       $('last-updated').textContent = 'Đăng nhập để xem thiết bị';
     }
-    if (chuSoHuuDangNhap) theoDoiOperators();
+    if (chuSoHuuDangNhap) { theoDoiOperators(); theoDoiWifiReveal(); }
     hienThiWifi();
   });
 
@@ -855,7 +972,7 @@ if (cheDoMoPhong) {
 
   $('wifi-settings-form').addEventListener('submit', async event => {
     event.preventDefault();
-    if (!chuSoHuuDangNhap || duLieuThietBi.wifiConfigVersion !== 2 ||
+    if (!chuSoHuuDangNhap || duLieuThietBi.wifiConfigVersion < 3 ||
         duLieuCu(duLieuThietBi.updatedAt) || wifiDangCho) return;
     const ssid = $('wifi-ssid').value;
     const password = $('wifi-password').value;
@@ -885,6 +1002,32 @@ if (cheDoMoPhong) {
   });
   $('show-wifi-password').addEventListener('change', () => {
     $('wifi-password').type = $('show-wifi-password').checked ? 'text' : 'password';
+  });
+  $('reveal-wifi-passwords').addEventListener('click', async () => {
+    if (!chuSoHuuDangNhap) return;
+    if (wifiRevealed) { anMatKhauWifi(); hienThiWifi(); return; }
+    if (wifiRevealRequest || duLieuThietBi.wifiConfigVersion < 4 ||
+        duLieuCu(duLieuThietBi.updatedAt) || !duLieuThietBi.wifiSavedSsids.length) return;
+    const requestId = crypto.randomUUID();
+    wifiRevealRequest = requestId;
+    wifiRevealMessage = 'Đang lấy mật khẩu từ ESP32…';
+    wifiRevealError = false;
+    wifiRevealTimer = setTimeout(() => {
+      if (wifiRevealRequest !== requestId) return;
+      anMatKhauWifi();
+      wifiRevealMessage = 'ESP32 chưa phản hồi. Kiểm tra kết nối rồi thử lại.';
+      wifiRevealError = true;
+      hienThiWifi();
+    }, 20_000);
+    hienThiWifi();
+    try {
+      await set(ref(coSoDuLieu, `devices/${deviceId}/commands/wifiReveal`), { requestId });
+    } catch {
+      anMatKhauWifi();
+      wifiRevealMessage = 'Không gửi được yêu cầu xem mật khẩu. Kiểm tra Database Rules.';
+      wifiRevealError = true;
+      hienThiWifi();
+    }
   });
 
   guiLenh = async (values, giaTriGhiSu = values) => {

@@ -153,6 +153,14 @@ def check_account_forms(page, case, errors):
             const box = document.getElementById(id).getBoundingClientRect();
             return {top: box.top + scrollY, bottom: box.bottom + scrollY, height: box.height, left: box.left, right: box.right, width: box.width};
           };
+          const divider = id => {
+            const card = document.getElementById(id);
+            const box = card.getBoundingClientRect();
+            const style = getComputedStyle(card, '::before');
+            if (style.content === 'none') return null;
+            const offset = style.left.endsWith('%') ? box.width * parseFloat(style.left) / 100 : parseFloat(style.left);
+            return Number.isFinite(offset) ? box.left + offset : null;
+          };
           return {
             cards: [rect('create-account-section'), rect('change-password-form')],
             layout: Object.fromEntries(['create-account-section', 'wifi-settings-section', 'operator-management-section'].map(id => [id, rect(id)])),
@@ -170,6 +178,14 @@ def check_account_forms(page, case, errors):
             operatorButton: (() => { const box = document.querySelector('.operator-row .button').getBoundingClientRect(); return {left: box.left, right: box.right}; })(),
             buttons: [rect('create-account-button'), rect('change-password-button')],
             inputs: [rect('account-password'), rect('new-password')],
+            dividers: [divider('wifi-settings-section'), divider('operator-management-section')],
+            alignment: {
+              createInput: rect('account-email'), passwordInput: rect('current-password'),
+              wifiSummary: document.querySelector('.wifi-summary').getBoundingClientRect().left,
+              wifiInput: rect('wifi-ssid'),
+              operatorHeading: document.querySelector('#operator-management-section h3').getBoundingClientRect().left,
+              operatorRow: (() => { const box = document.querySelector('.operator-row').getBoundingClientRect(); return {left: box.left, right: box.right}; })(),
+            },
             footer: document.querySelector('footer').getBoundingClientRect().top + scrollY,
             scrollY,
             overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -183,18 +199,27 @@ def check_account_forms(page, case, errors):
     if '1280px' in case:
         if abs(create['top'] - password['top']) > TOLERANCE:
             errors.append(f"{case}/account: account forms do not align")
-        if not (max(create['bottom'], password['bottom']) < operator['top'] + TOLERANCE and operator['bottom'] < wifi['top'] + TOLERANCE):
-            errors.append(f"{case}/account: access and Wi-Fi panels must follow the forms")
+        if not (max(create['bottom'], password['bottom']) < wifi['top'] + TOLERANCE and wifi['bottom'] < operator['top'] + TOLERANCE):
+            errors.append(f"{case}/account: Wi-Fi and access panels must follow the forms")
         if abs(operator['left'] - create['left']) > TOLERANCE or abs(operator['right'] - password['right']) > TOLERANCE or abs(wifi['right'] - password['right']) > TOLERANCE:
             errors.append(f"{case}/account: lower panels do not fill the aligned content width")
         if before['operatorList']['left'] < operator['left'] + operator['width'] * 0.45 or before['wifiForm']['left'] < wifi['left'] + wifi['width'] * 0.45:
             errors.append(f"{case}/account: lists and settings form do not use the right column")
+        midpoint = (create['right'] + password['left']) / 2
+        if any(divider is None or abs(divider - midpoint) > TOLERANCE for divider in before['dividers']):
+            errors.append(f"{case}/account: lower card dividers must align with upper card gap center")
+        alignment = before['alignment']
+        if any(abs(alignment['passwordInput'][edge] - alignment['wifiInput'][edge]) > TOLERANCE for edge in ('left', 'right')) or \
+                any(abs(alignment['passwordInput'][edge] - alignment['operatorRow'][edge]) > TOLERANCE for edge in ('left', 'right')) or \
+                abs(alignment['createInput']['left'] - alignment['wifiSummary']) > TOLERANCE or \
+                abs(alignment['createInput']['left'] - alignment['operatorHeading']) > TOLERANCE:
+            errors.append(f"{case}/account: lower card content must align with account forms")
         for upper, lower in zip(before['wifiText'], before['wifiText'][1:]):
             if lower['top'] - upper['bottom'] > 28:
                 errors.append(f"{case}/account: Wi-Fi summary has excessive vertical gaps")
                 break
     else:
-        if not (create['bottom'] < password['top'] + TOLERANCE and password['bottom'] < operator['top'] + TOLERANCE and operator['bottom'] < wifi['top'] + TOLERANCE):
+        if not (create['bottom'] < password['top'] + TOLERANCE and password['bottom'] < wifi['top'] + TOLERANCE and wifi['bottom'] < operator['top'] + TOLERANCE):
             errors.append(f"{case}/account: cards must stack in reading order on phones")
         if before['wifiForm']['top'] < before['wifiList']['bottom'] - TOLERANCE:
             errors.append(f"{case}/account: Wi-Fi form overlaps saved networks on phones")
@@ -215,6 +240,19 @@ def check_account_forms(page, case, errors):
         if after['overflow'] > TOLERANCE:
             errors.append(f"{case}/account/{checkbox}: horizontal overflow")
         page.locator(f'#{checkbox}').evaluate('input => input.click()')
+    password_overflow = page.evaluate("""() => {
+      const item = document.querySelector('#wifi-saved-list li');
+      const secret = document.createElement('code');
+      secret.textContent = 'p'.repeat(63);
+      item.append(secret);
+      const overflow = document.documentElement.scrollWidth - document.documentElement.clientWidth;
+      const card = document.getElementById('wifi-settings-section').getBoundingClientRect();
+      const button = document.getElementById('reveal-wifi-passwords').getBoundingClientRect();
+      secret.remove();
+      return {overflow, buttonRight: button.right, cardRight: card.right};
+    }""")
+    if password_overflow['overflow'] > TOLERANCE or password_overflow['buttonRight'] > password_overflow['cardRight'] + TOLERANCE:
+        errors.append(f"{case}/account: revealed Wi-Fi password or button overflows")
     page.evaluate("""() => {
       for (const id of ['create-account-section', 'operator-management-section', 'wifi-settings-section']) {
         document.getElementById(id).hidden = true;

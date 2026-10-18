@@ -26,3 +26,17 @@ test('Wi-Fi telemetry lists only distinct saved network names', () => {
   assert.equal(reading.wifiConfigVersion, 2);
   assert.deepEqual(reading.wifiSavedSsids, ['Viet', 'Guest']);
 });
+
+test('Wi-Fi provisioning reports staged credentials separately from a connected network', () => {
+  const reading = model.chuanHoaDuLieu({ wifiConfigVersion: 3, wifiSsid: 'Viet',
+    wifiSavedSsids: ['Viet', 'Viet2'], wifiChangeStatus: 'saved' });
+  assert.equal(reading.wifiConfigVersion, 3);
+  assert.equal(reading.wifiChangeStatus, 'saved');
+  assert.equal(reading.wifiSsid, 'Viet');
+  assert.deepEqual(reading.wifiSavedSsids, ['Viet', 'Viet2']);
+  assert.equal('wifiPassword' in reading, false);
+});
+
+test('Wi-Fi password reveal protocol requires firmware version 4', () => {
+  assert.equal(model.chuanHoaDuLieu({ wifiConfigVersion: 4 }).wifiConfigVersion, 4);
+});

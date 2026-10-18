@@ -46,6 +46,12 @@ static_assert(!wifiCleanupDue(true, 1000, 500), "Failed cleanup should not flood
 static_assert(wifiCleanupDue(true, 30500, 500), "Failed cleanup should retry after 30 seconds");
 static_assert(!wifiCleanupDue(false, 30500, 500), "Completed cleanup should not retry");
 static_assert(wifiCleanupMatches("request-1", "request-1"), "A processed request can be cleared");
+static_assert(wifiProvisioningAction(true, true) == WifiProvisioningAction::SaveForLater,
+              "Changing the password of the active SSID must keep the current link until it drops");
+static_assert(wifiProvisioningAction(false, false) == WifiProvisioningAction::SaveForLater,
+              "An SSID that does not exist yet must be saved for the future router change");
+static_assert(wifiProvisioningAction(false, true) == WifiProvisioningAction::TryNow,
+              "A visible new SSID can be tried immediately");
 static_assert(!wifiCleanupMatches("request-2", "request-1"),
               "Cleanup must preserve a newer Wi-Fi request from another browser");
 

@@ -412,6 +412,13 @@ WifiRequest pendingWifi;
 bool wifiRequestPending = false;
 bool wifiCleanupPending = false;
 uint32_t lastWifiCleanupAt = 0;
+bool wifiRevealInitialized = false;
+String lastWifiRevealId;
+char pendingWifiRevealId[65] = "";
+bool wifiRevealPending = false;
+bool wifiRevealCleanupPending = false;
+uint32_t wifiRevealSentAt = 0;
+uint32_t wifiRevealLastCleanupAt = 0;
 char commandStreamToken[2048] = "";
 uint32_t commandStreamGeneration = 0;
 portMUX_TYPE commandStreamTokenLock = portMUX_INITIALIZER_UNLOCKED;
@@ -588,6 +595,7 @@ void applyFirebaseCommand(JsonVariantConst value) {
   if (xSemaphoreTake(commandMutex, pdMS_TO_TICKS(1000)) != pdTRUE) return;
   if (value.isNull()) {
     commandsInitialized = true;
+    wifiRevealInitialized = true;
   } else if (value.is<JsonObjectConst>()) {
     const char* commandId = value["commandId"] | "";
     if (!commandsInitialized) {
@@ -629,6 +637,15 @@ void applyFirebaseCommand(JsonVariantConst value) {
     }
   } else if (wifiRequestId[0] && lastWifiRequestId == wifiRequestId) {
     wifiCleanupPending = true;
+  }
+  const char* revealId = value["wifiReveal"]["requestId"] | "";
+  if (!wifiRevealInitialized) {
+    lastWifiRevealId = revealId;
+    wifiRevealInitialized = true;
+  } else if (revealId[0] && strlen(revealId) <= 64 && lastWifiRevealId != revealId) {
+    lastWifiRevealId = revealId;
+    strlcpy(pendingWifiRevealId, revealId, sizeof(pendingWifiRevealId));
+    wifiRevealPending = true;
   }
   xSemaphoreGive(commandMutex);
 }
@@ -706,40 +723,110 @@ void clearWifiRequest(const char* token) {
   if (wifiCleanupPending) Serial.printf("WiFi request cleanup write HTTP %d\n", deleteStatus);
 }
 
+bool wifiRevealCleanupDue() {
+  return wifiRevealCleanupPending && millis() - wifiRevealSentAt >= 60000 &&
+         (wifiRevealLastCleanupAt == 0 || millis() - wifiRevealLastCleanupAt >= 30000);
+}
+
+void publishWifiReveal(const char* token) {
+  if (!wifiRevealPending || WiFi.status() != WL_CONNECTED) return;
+  char requestId[sizeof(pendingWifiRevealId)];
+  strlcpy(requestId, pendingWifiRevealId, sizeof(requestId));
+  wifiRevealPending = false;
+  WifiProfile profiles[MAX_WIFI_NETWORKS];
+  size_t count;
+  portENTER_CRITICAL(&stateLock);
+  count = wifiProfileCount;
+  memcpy(profiles, wifiProfiles, sizeof(WifiProfile) * count);
+  portEXIT_CRITICAL(&stateLock);
+  JsonDocument payload;
+  payload["requestId"] = requestId;
+  JsonArray networks = payload["networks"].to<JsonArray>();
+  for (size_t index = 0; index < count; ++index) {
+    JsonObject network = networks.add<JsonObject>();
+    network["ssid"] = profiles[index].ssid;
+    network["password"] = profiles[index].password;
+  }
+  String body;
+  serializeJson(payload, body);
+  String response;
+  const String url = databaseBaseUrl() + "/devices/" + DEVICE_ID + "/wifiReveal.json?auth=" + token + "&print=silent";
+  WiFiClientSecure revealClient;
+  revealClient.useBuiltinCACertBundle();
+  revealClient.setHandshakeTimeout(6);
+  const int status = firebaseRequest(url, "PUT", body, response, false, &revealClient);
+  memset(profiles, 0, sizeof(profiles));
+  if (status == 204 || status == 200) {
+    wifiRevealCleanupPending = true;
+    wifiRevealSentAt = millis();
+    wifiRevealLastCleanupAt = 0;
+  } else {
+    Serial.printf("WiFi password reply HTTP %d\n", status);
+  }
+}
+
+void clearWifiReveal(const char* token) {
+  if (!wifiRevealCleanupDue() || WiFi.status() != WL_CONNECTED) return;
+  wifiRevealLastCleanupAt = millis();
+  String response;
+  const String url = databaseBaseUrl() + "/devices/" + DEVICE_ID + "/wifiReveal.json?auth=" + token + "&print=silent";
+  WiFiClientSecure revealClient;
+  revealClient.useBuiltinCACertBundle();
+  revealClient.setHandshakeTimeout(6);
+  const int status = firebaseRequest(url, "PUT", "null", response, false, &revealClient);
+  if (status == 204 || status == 200) wifiRevealCleanupPending = false;
+}
+
 void applyPendingWifiChange(const char* token) {
   if (!wifiRequestPending) return;
   WifiRequest request = pendingWifi;
   wifiRequestPending = false;
   setWifiChange(request.requestId, "connecting", true);
-  WiFi.setAutoReconnect(false);
-  WiFi.disconnect(false, false);
-  vTaskDelay(pdMS_TO_TICKS(200));
-  WiFi.begin(request.ssid, request.password);
-  const uint32_t startedAt = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startedAt < 15000) {
-    vTaskDelay(pdMS_TO_TICKS(100));
+  const bool targetIsCurrent = WiFi.status() == WL_CONNECTED && strcmp(request.ssid, activeWifiSsid) == 0;
+  const bool alreadyConnected = targetIsCurrent && strcmp(request.password, activeWifiPassword) == 0;
+  bool targetVisible = false;
+  if (!targetIsCurrent) {
+    const int networkCount = WiFi.scanNetworks(false, true);
+    for (int index = 0; index < networkCount; ++index) {
+      if (WiFi.SSID(index) == request.ssid) { targetVisible = true; break; }
+    }
+    WiFi.scanDelete();
   }
-
-  bool verified = false;
-  if (WiFi.status() == WL_CONNECTED) {
-    WiFiClientSecure verifyClient;
-    verifyClient.useBuiltinCACertBundle();
-    verifyClient.setHandshakeTimeout(6);
-    String response;
-    const String url = databaseBaseUrl() + "/devices/" + DEVICE_ID + "/telemetry.json?auth=" + token + "&shallow=true";
-    verified = firebaseRequest(url, "GET", "", response, false, &verifyClient) == 200;
-  }
-
-  if (verified && saveWifi(request.ssid, request.password)) {
-    setActiveWifi(request.ssid, request.password);
-    WiFi.setAutoReconnect(true);
-    Serial.printf("WiFi network saved for SSID=%s (total=%u)\n", request.ssid,
-                  static_cast<unsigned>(wifiProfileCount));
-    setWifiChange(request.requestId, "applied", false);
-  } else {
-    Serial.println("WiFi change failed; trying saved networks");
-    connectWifi();
+  if (!saveWifi(request.ssid, request.password)) {
     setWifiChange(request.requestId, "failed", false);
+  } else if (alreadyConnected) {
+    setWifiChange(request.requestId, "applied", false);
+  } else if (wifiProvisioningAction(targetIsCurrent, targetVisible) == WifiProvisioningAction::SaveForLater) {
+    Serial.printf("WiFi saved for later SSID=%s (total=%u)\n", request.ssid,
+                  static_cast<unsigned>(wifiProfileCount));
+    setWifiChange(request.requestId, "saved", false);
+  } else {
+    WiFi.setAutoReconnect(false);
+    WiFi.disconnect(false, false);
+    vTaskDelay(pdMS_TO_TICKS(200));
+    WiFi.begin(request.ssid, request.password);
+    const uint32_t startedAt = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - startedAt < 15000) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    bool verified = false;
+    if (WiFi.status() == WL_CONNECTED) {
+      WiFiClientSecure verifyClient;
+      verifyClient.useBuiltinCACertBundle();
+      verifyClient.setHandshakeTimeout(6);
+      String response;
+      const String url = databaseBaseUrl() + "/devices/" + DEVICE_ID + "/telemetry.json?auth=" + token + "&shallow=true";
+      verified = firebaseRequest(url, "GET", "", response, false, &verifyClient) == 200;
+    }
+    if (verified) {
+      setActiveWifi(request.ssid, request.password);
+      WiFi.setAutoReconnect(true);
+      setWifiChange(request.requestId, "applied", false);
+    } else {
+      Serial.println("New WiFi not verified; keeping it saved and reconnecting to a known network");
+      connectWifi();
+      setWifiChange(request.requestId, "saved", false);
+    }
   }
   rememberWifiRequest(request.requestId);
   wifiCleanupPending = true;
@@ -772,6 +859,8 @@ void commandStreamTask(void*) {
       readFirebaseCommand(token);
       applyPendingWifiChange(token);
       clearWifiRequest(token);
+      publishWifiReveal(token);
+      clearWifiReveal(token);
       vTaskDelay(pdMS_TO_TICKS(1000));
       continue;
     }
@@ -793,7 +882,7 @@ void commandStreamTask(void*) {
         latestGeneration = commandStreamGeneration;
         portEXIT_CRITICAL(&commandStreamTokenLock);
         if (latestGeneration != generation || millis() - lastEventAt > 45000 ||
-            wifiCleanupDue(wifiCleanupPending, millis(), lastWifiCleanupAt)) break;
+            wifiCleanupDue(wifiCleanupPending, millis(), lastWifiCleanupAt) || wifiRevealCleanupDue()) break;
         if (!stream->available()) {
           vTaskDelay(pdMS_TO_TICKS(10));
           continue;
@@ -825,7 +914,8 @@ void commandStreamTask(void*) {
                 commandCache[path + 1].set(data);
               }
               applyFirebaseCommand(commandCache.as<JsonVariantConst>());
-              if (wifiRequestPending || wifiCleanupDue(wifiCleanupPending, millis(), lastWifiCleanupAt)) break;
+              if (wifiRequestPending || wifiRevealPending ||
+                  wifiCleanupDue(wifiCleanupPending, millis(), lastWifiCleanupAt)) break;
             }
           }
           eventName = "";
@@ -837,10 +927,13 @@ void commandStreamTask(void*) {
     }
     streamHttp.end();
     streamClient.stop();
-    if (!wifiRequestPending && !wifiCleanupDue(wifiCleanupPending, millis(), lastWifiCleanupAt) &&
+    if (!wifiRequestPending && !wifiRevealPending &&
+        !wifiCleanupDue(wifiCleanupPending, millis(), lastWifiCleanupAt) &&
         WiFi.status() == WL_CONNECTED) readFirebaseCommand(token);
     applyPendingWifiChange(token);
     clearWifiRequest(token);
+    publishWifiReveal(token);
+    clearWifiReveal(token);
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
@@ -862,7 +955,7 @@ int sendFirebaseData(const DeviceState& current) {
   data["statusLedMode"] = modeName(current.greenLedMode);
   data["buzzerMode"] = modeName(current.buzzerMode);
   data["controlsVersion"] = 2;
-  data["wifiConfigVersion"] = 2;
+  data["wifiConfigVersion"] = 4;
   data["logicVersion"] = FIRMWARE_LOGIC_VERSION;
   data["muteUntil"] = current.muteUntil;
   data["gasWarmup"] = current.gasWarmup;

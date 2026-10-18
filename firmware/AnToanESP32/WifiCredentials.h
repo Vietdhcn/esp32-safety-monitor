@@ -20,6 +20,12 @@ constexpr bool wifiCredentialsValid(const char* ssid, const char* password) {
   return passwordLength >= 8;
 }
 
+enum class WifiProvisioningAction { SaveForLater, TryNow };
+
+constexpr WifiProvisioningAction wifiProvisioningAction(bool targetIsCurrent, bool targetVisible) {
+  return targetIsCurrent || !targetVisible ? WifiProvisioningAction::SaveForLater : WifiProvisioningAction::TryNow;
+}
+
 constexpr bool wifiCleanupDue(bool pending, uint32_t nowMs, uint32_t lastAttemptMs) {
   return pending && (lastAttemptMs == 0 || nowMs - lastAttemptMs >= 30000);
 }

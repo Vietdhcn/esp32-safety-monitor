@@ -10,8 +10,8 @@
   <title>Trạm giám sát an toàn</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1a1a'/%3E%3Cpath d='M16 6c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-5 3-6 0 2 1 3 2 3 0-3 0-6 1-9z' fill='%23fff'/%3E%3C/svg%3E">
   <script src="./theme.js?v=20261016-30"></script>
-  <link rel="stylesheet" href="./styles.css?v=20261018-7">
-  <script type="module" src="./app.js?v=20261018-9"></script>
+  <link rel="stylesheet" href="./styles.css?v=20261018-12">
+  <script type="module" src="./app.js?v=20261018-13"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -140,11 +140,11 @@
 
         <section id="history-view" class="history" role="tabpanel" aria-labelledby="tab-history" tabindex="0" hidden>
           <div class="history-heading">
-            <div><h2>Lịch sử theo dõi</h2><p class="subtle">Nhiệt độ, độ ẩm, cảnh báo an toàn và thao tác của các tài khoản.</p></div>
-            <div class="segmented" role="group" aria-label="Khoảng thời gian thống kê">
-              <button id="history-range-day" class="segment" type="button" aria-pressed="true">24 giờ</button>
+            <div><h2>Lịch sử theo dõi</h2><p class="subtle">Cảnh báo lửa/khí gas ghi ngay khi phát hiện; nhiệt độ và độ ẩm ghi mỗi phút.</p></div>
+            <div class="segmented history-range" role="group" aria-label="Khoảng thời gian thống kê">
+              <button id="history-range-today" class="segment" type="button" aria-pressed="true">Hôm nay</button>
               <button id="history-range-week" class="segment" type="button" aria-pressed="false">7 ngày</button>
-              <button id="history-range-month" class="segment" type="button" aria-pressed="false">30 ngày</button>
+              <button id="history-range-month" class="segment" type="button" aria-pressed="false">1 tháng</button>
             </div>
           </div>
           <div class="history-summary" aria-label="Thống kê lịch sử">
@@ -155,15 +155,14 @@
             <article class="card history-stat history-stat-user"><h3>Người dùng nhấn</h3><strong id="history-user-range-count">0</strong><p id="history-user-last" class="subtle">Chưa có thao tác</p></article>
           </div>
           <div class="history-charts">
-            <article class="card history-chart history-chart-temperature"><div class="history-chart-heading"><h3>Biểu đồ nhiệt độ</h3><span id="history-temp-average" class="subtle">—</span></div><svg viewBox="0 0 600 160" preserveAspectRatio="none" role="img" aria-label="Diễn biến nhiệt độ"><path class="history-chart-grid" d="M 10 20 H 590 M 10 80 H 590 M 10 140 H 590"/><path id="history-temp-line" class="history-chart-line" d=""/></svg><p id="history-temp-chart-empty" class="subtle history-chart-empty">Chưa có số đo trong khoảng này.</p></article>
-            <article class="card history-chart history-chart-humidity"><div class="history-chart-heading"><h3>Biểu đồ độ ẩm</h3><span id="history-humidity-average" class="subtle">—</span></div><svg viewBox="0 0 600 160" preserveAspectRatio="none" role="img" aria-label="Diễn biến độ ẩm"><path class="history-chart-grid" d="M 10 20 H 590 M 10 80 H 590 M 10 140 H 590"/><path id="history-humidity-line" class="history-chart-line" d=""/></svg><p id="history-humidity-chart-empty" class="subtle history-chart-empty">Chưa có số đo trong khoảng này.</p></article>
+            <article class="card history-chart history-chart-temperature"><div class="history-chart-heading"><h3>Biểu đồ nhiệt độ</h3><span id="history-temp-average" class="subtle">—</span></div><div class="history-chart-plot"><div id="history-temp-scale" class="history-chart-scale" aria-hidden="true"><span>—</span><span>—</span><span>—</span></div><svg viewBox="0 0 600 160" preserveAspectRatio="none" role="img" aria-label="Diễn biến nhiệt độ"><path class="history-chart-grid" d="M 10 20 H 590 M 10 80 H 590 M 10 140 H 590"/><path id="history-temp-line" class="history-chart-line" d=""/><g id="history-temp-points" class="history-chart-points"></g></svg></div><div class="history-chart-axis subtle" aria-hidden="true"><span class="history-axis-start">00:00</span><span class="history-axis-end">Hiện tại</span></div><p id="history-temp-chart-empty" class="subtle history-chart-empty">Chưa có số đo trong khoảng này.</p></article>
+            <article class="card history-chart history-chart-humidity"><div class="history-chart-heading"><h3>Biểu đồ độ ẩm</h3><span id="history-humidity-average" class="subtle">—</span></div><div class="history-chart-plot"><div id="history-humidity-scale" class="history-chart-scale" aria-hidden="true"><span>—</span><span>—</span><span>—</span></div><svg viewBox="0 0 600 160" preserveAspectRatio="none" role="img" aria-label="Diễn biến độ ẩm"><path class="history-chart-grid" d="M 10 20 H 590 M 10 80 H 590 M 10 140 H 590"/><path id="history-humidity-line" class="history-chart-line" d=""/><g id="history-humidity-points" class="history-chart-points"></g></svg></div><div class="history-chart-axis subtle" aria-hidden="true"><span class="history-axis-start">00:00</span><span class="history-axis-end">Hiện tại</span></div><p id="history-humidity-chart-empty" class="subtle history-chart-empty">Chưa có số đo trong khoảng này.</p></article>
           </div>
           <p id="history-period" class="history-period subtle">Chưa có số đo trong khoảng thời gian này.</p>
           <article class="card history-activity">
-            <div class="history-activity-heading"><h3>Hoạt động theo thời gian</h3><div class="history-legend" aria-label="Chú giải biểu đồ"><span class="history-legend-flame">Lửa</span><span class="history-legend-gas">Khí gas</span><span class="history-legend-user">Thao tác</span></div></div>
-            <div id="history-activity-bars" class="history-activity-bars" role="img" aria-label="Số cảnh báo lửa, khí gas và thao tác theo thời gian"></div>
-            <p id="history-activity-empty" class="history-chart-empty subtle">Chưa có cảnh báo hoặc thao tác trong khoảng này.</p>
-            <div class="history-activity-axis subtle"><span>Đầu kỳ</span><span>Hiện tại</span></div>
+            <div class="history-activity-heading"><h3>Cảnh báo theo ngày</h3><div class="history-legend" aria-label="Chú giải biểu đồ"><span class="history-legend-flame">Lửa</span><span class="history-legend-gas">Khí gas</span></div></div>
+            <div id="history-activity-scroll" class="history-activity-scroll" role="region" tabindex="0" aria-label="Biểu đồ cảnh báo theo ngày, cuộn ngang để xem ngày cũ"><div id="history-activity-bars" class="history-activity-bars" role="img" aria-label="Số cảnh báo lửa và khí gas theo từng ngày"></div></div>
+            <p id="history-activity-empty" class="history-chart-empty subtle">Chưa có cảnh báo lửa hoặc khí gas gần đây.</p>
           </article>
           <p id="history-dashboard-status" class="history-status" role="status"></p>
           <h3 class="history-events-title">Sự kiện và thao tác</h3>
@@ -179,7 +178,6 @@
               <button id="clear-history-all" class="button button-danger" type="button" disabled>Xóa toàn bộ</button>
             </div>
           </div>
-          <p class="subtle history-note">Lịch sử dùng chung cho các tài khoản của thiết bị trên trình duyệt này. Số đo lưu mỗi phút; hệ thống chỉ ghi khi lửa/gas đổi trạng thái. Dung lượng lưu phụ thuộc trình duyệt.</p>
           <p id="history-status" class="history-status" role="status"></p>
           <div class="card history-card" role="region" aria-label="Danh sách lịch sử hoạt động" tabindex="0">
             <ol id="history-list" class="history-list" aria-live="polite"></ol>
@@ -219,28 +217,31 @@
                 <p id="change-password-status" class="form-status" role="status" aria-live="polite"></p>
               </form>
             </article>
-            <article id="operator-management-section" class="account-card operator-card card" hidden>
-              <h3>Tài khoản đã cấp quyền <span id="operator-count" class="count">…</span></h3>
-              <p class="subtle">Thu hồi quyền sẽ chặn truy cập thiết bị; tài khoản đăng nhập vẫn tồn tại và có thể được cấp lại quyền.</p>
-              <p id="operator-list-status" class="subtle" role="status" aria-live="polite">Đang tải tài khoản…</p>
-              <ul id="operator-list" class="operator-list" aria-label="Danh sách tài khoản operator"></ul>
-              <p id="operator-action-status" class="form-status" role="status" aria-live="polite"></p>
-            </article>
             <article id="wifi-settings-section" class="account-card card" hidden>
               <div class="wifi-summary">
                 <h3>Wi-Fi của ESP32</h3>
                 <p class="subtle">Đang kết nối: <strong id="wifi-current-ssid">Chưa có dữ liệu</strong>. ESP32 giữ tối đa 8 mạng; khi mất kết nối sẽ tự thử những mạng đã lưu.</p>
                 <p class="wifi-list-heading">Mạng đã lưu</p>
                 <ul id="wifi-saved-list" class="wifi-saved-list" aria-label="Các mạng Wi-Fi đã lưu"></ul>
+                <button id="reveal-wifi-passwords" class="button" type="button" disabled>Hiện mật khẩu đã lưu</button>
+                <p id="wifi-reveal-status" class="form-status" role="status" aria-live="polite"></p>
               </div>
               <form id="wifi-settings-form" autocomplete="off">
                 <h4 class="wifi-form-title">Thêm mạng Wi-Fi</h4>
+                <p class="subtle wifi-form-help">Có thể lưu trước mạng chưa xuất hiện. ESP32 giữ kết nối hiện tại và tự thử mạng mới khi bạn đổi tên hoặc mật khẩu router.</p>
                 <label for="wifi-ssid">Tên Wi-Fi cần thêm (SSID)</label><input id="wifi-ssid" type="text" maxlength="32" autocomplete="off" spellcheck="false" required>
                 <label for="wifi-password">Mật khẩu Wi-Fi</label><input id="wifi-password" type="password" autocomplete="new-password" minlength="8" maxlength="63" required>
                 <label class="check" for="show-wifi-password"><input id="show-wifi-password" type="checkbox">Hiện mật khẩu Wi-Fi</label>
-                <button id="wifi-settings-button" class="button button-accent" type="submit" disabled>Thêm và kết nối</button>
+                <button id="wifi-settings-button" class="button button-accent" type="submit" disabled>Lưu Wi-Fi</button>
                 <p id="wifi-settings-status" class="form-status" role="status" aria-live="polite"></p>
               </form>
+            </article>
+            <article id="operator-management-section" class="account-card operator-card card" hidden>
+              <h3>Tài khoản đã cấp quyền <span id="operator-count" class="count">…</span></h3>
+              <p class="subtle">Thu hồi quyền sẽ chặn truy cập thiết bị và xóa tài khoản khỏi danh sách này. Tài khoản đăng nhập vẫn tồn tại.</p>
+              <p id="operator-list-status" class="subtle" role="status" aria-live="polite">Đang tải tài khoản…</p>
+              <ul id="operator-list" class="operator-list" aria-label="Danh sách tài khoản operator"></ul>
+              <p id="operator-action-status" class="form-status" role="status" aria-live="polite"></p>
             </article>
           </div>
         </section>
