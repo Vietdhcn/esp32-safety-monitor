@@ -1,6 +1,6 @@
 import { firebaseConfig, deviceId, ownerUid } from './config.js?v=20261018-1';
 import { chuanHoaDuLieu, duLieuCu, thietBiNgoaiTuyen, laMoPhongNoiBo, taoDuLieuMoPhong, cacCheDo, luaChonMauDen, lenhDen, coTheDieuKhien, coTheTamTat, dangTamTat, tamTatTatCa, laLogicMoi, lenhHopLe, tienDoLenh, loiCauHinhWifi } from './dashboard-model.js?v=20261018-6';
-import { cacThayDoiLichSu, themLichSu, lichSuThaoTac, locLichSu, xoaLichSuTheoNguon, lamSachLichSuHeThongCu, mauDoLichSu, thongKeLichSu, duongBieuDo, nhomCanhBaoTheoNgay, trungBinhMauTheoNgay } from './history-model.js?v=20261018-4';
+import { cacThayDoiLichSu, themLichSu, lichSuThaoTac, locLichSu, khoangNgayBaoCao, xoaLichSuTheoNguon, lamSachLichSuHeThongCu, mauDoLichSu, thongKeLichSu, duongBieuDo, nhomCanhBaoTheoNgay, trungBinhMauTheoNgay } from './history-model.js?v=20261018-6';
 import { taoKhoMauLichSu } from './history-samples-store.js?v=20261018-2';
 import { taiLichSuTheoThietBi } from './history-device-store.js?v=20261018-1';
 
@@ -23,6 +23,7 @@ let wifiDangCho = null;
 let thongBaoWifi = '';
 let loiWifi = false;
 let wifiListKey = '';
+let wifiSecretKey = '';
 let huyTheoDoiWifiReveal = null;
 let wifiRevealRequest = null;
 let wifiRevealed = null;
@@ -33,12 +34,15 @@ let guiLenh = async () => {};
 let khoaLichSu = '';
 let cacMucLichSu = [];
 let nguonLichSu = 'all';
+let ngayLichSu = '';
 let khoMauLichSu = null;
 let trangLichSu = 1;
 let phutMauCuoi = null;
 let coMauLichSu = false;
 let lanTaiBieuDo = 0;
 let phamViBieuDo = 'today';
+let ngayBaoCaoTu = '';
+let ngayBaoCaoDen = '';
 let taiKhoanLichSu = null;
 let duLieuTruoc = null;
 let boQuaLanDocDau = false;
@@ -91,7 +95,7 @@ function luuLichSu() {
 function hienThiLichSu() {
   const list = $('history-list');
   list.replaceChildren();
-  const allVisible = locLichSu(cacMucLichSu, nguonLichSu);
+  const allVisible = locLichSu(cacMucLichSu, nguonLichSu, ngayLichSu);
   const totalPages = Math.max(1, Math.ceil(allVisible.length / 50));
   trangLichSu = Math.min(trangLichSu, totalPages);
   const visible = allVisible.slice((trangLichSu - 1) * 50, trangLichSu * 50);
@@ -131,18 +135,36 @@ function hienThiLichSu() {
   $('history-page-prev').disabled = trangLichSu <= 1;
   $('history-page-next').disabled = trangLichSu >= totalPages;
   datChu('history-page-label', `Trang ${trangLichSu} / ${totalPages}`);
-  $('history-empty').textContent = nguonLichSu === 'user' ? 'Chưa có thao tác nào của người dùng.' :
+  $('history-empty').textContent = ngayLichSu ? 'Không có hoạt động trong ngày đã chọn.' :
+    nguonLichSu === 'user' ? 'Chưa có thao tác nào của người dùng.' :
     nguonLichSu === 'system' ? 'Chưa có sự kiện hệ thống nào.' : 'Chưa có hoạt động nào được ghi lại.';
   $('clear-history-all').disabled = cacMucLichSu.length === 0 && !coMauLichSu;
   $('clear-history-system').disabled = locLichSu(cacMucLichSu, 'system').length === 0;
   $('clear-history-user').disabled = locLichSu(cacMucLichSu, 'user').length === 0;
   $('history-count').textContent = String(cacMucLichSu.length);
-  $('history-system-count').textContent = String(locLichSu(cacMucLichSu, 'system').length);
-  $('history-user-count').textContent = String(locLichSu(cacMucLichSu, 'user').length);
+  $('history-system-count').textContent = String(locLichSu(cacMucLichSu, 'system', ngayLichSu).length);
+  $('history-user-count').textContent = String(locLichSu(cacMucLichSu, 'user', ngayLichSu).length);
+  $('history-date-clear').disabled = !ngayLichSu;
   for (const source of ['all', 'system', 'user']) {
     $('history-filter-' + source).setAttribute('aria-pressed', String(nguonLichSu === source));
   }
 }
+
+for (const event of ['input', 'change']) $('history-date').addEventListener(event, () => {
+  if (ngayLichSu === $('history-date').value) return;
+  ngayLichSu = $('history-date').value;
+  trangLichSu = 1;
+  $('history-card').scrollTop = 0;
+  hienThiLichSu();
+});
+$('history-date-clear').addEventListener('click', () => {
+  $('history-date').value = '';
+  ngayLichSu = '';
+  trangLichSu = 1;
+  $('history-card').scrollTop = 0;
+  hienThiLichSu();
+  $('history-date').focus();
+});
 
 for (const source of ['all', 'system', 'user']) {
   $('history-filter-' + source).addEventListener('click', () => {
@@ -173,23 +195,169 @@ function hienThiTyLeBieuDo(id, stats, unit) {
     labels[index].textContent = `${value.toFixed(1)} ${unit}`;
 }
 
-for (const period of ['today', 'week', 'month']) {
-  $(`history-range-${period}`).addEventListener('click', () => {
-    phamViBieuDo = period;
-    for (const value of ['today', 'week', 'month'])
-      $(`history-range-${value}`).setAttribute('aria-pressed', String(value === period));
-    void hienThiBangLichSu();
+function hienThiDiemTrungBinh(id, samples, key, stats, unit, from, to, perMinute) {
+  const group = $(id);
+  group.replaceChildren();
+  if (perMinute || !stats.count) return;
+  const span = Math.max(stats.max - stats.min, 1);
+  const timeSpan = Math.max(to - from, 1);
+  for (const sample of samples) {
+    if (!Number.isFinite(sample[key])) continue;
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', (10 + (sample.at - from) / timeSpan * 580).toFixed(1));
+    circle.setAttribute('cy', (140 - (sample[key] - stats.min) / span * 120).toFixed(1));
+    circle.setAttribute('r', '4');
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    title.textContent = `${dinhDangNgay.format(new Date(sample.at))}: trung bình ${sample[key].toFixed(1)} ${unit}`;
+    circle.append(title);
+    group.append(circle);
+  }
+}
+
+const tenKhoangBaoCao = { today: 'Hôm nay', yesterday: 'Hôm qua', week: '1 tuần', month: '1 tháng' };
+const bangNgayBaoCao = $('history-range-dialog');
+let cheDoBanNhap = 'today';
+let ngayBanNhapTu = '';
+let ngayBanNhapDen = '';
+let thangLich = new Date();
+
+function chuoiNgayLich(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function tenKhoangDangChon() {
+  if (phamViBieuDo !== 'custom') return tenKhoangBaoCao[phamViBieuDo];
+  const hienNgay = day => `${day.slice(8, 10)}/${day.slice(5, 7)}/${day.slice(0, 4)}`;
+  const from = hienNgay(ngayBaoCaoTu);
+  const to = hienNgay(ngayBaoCaoDen);
+  return from === to ? from : `${from} – ${to}`;
+}
+
+function hienThiBangChonNgay() {
+  const today = khoangNgayBaoCao('today').fromDay;
+  for (const mode of ['today', 'yesterday', 'week', 'month', 'custom'])
+    $(`history-range-preset-${mode}`).setAttribute('aria-pressed', String(cheDoBanNhap === mode));
+  $('history-range-from').value = ngayBanNhapTu;
+  $('history-range-to').value = ngayBanNhapDen;
+  $('history-range-from').max = today;
+  $('history-range-to').max = today;
+  $('history-calendar-month').textContent = `Tháng ${thangLich.getMonth() + 1} / ${thangLich.getFullYear()}`;
+  const currentMonth = new Date();
+  currentMonth.setDate(1);
+  currentMonth.setHours(0, 0, 0, 0);
+  $('history-calendar-next').disabled = thangLich.getTime() >= currentMonth.getTime();
+  const first = new Date(thangLich.getFullYear(), thangLich.getMonth(), 1);
+  first.setDate(first.getDate() - (first.getDay() + 6) % 7);
+  const cells = [];
+  for (let offset = 0; offset < 42; offset++) {
+    const date = new Date(first);
+    date.setDate(date.getDate() + offset);
+    const day = chuoiNgayLich(date);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = String(date.getDate());
+    button.dataset.date = day;
+    button.dataset.outside = String(date.getMonth() !== thangLich.getMonth());
+    button.dataset.between = String(Boolean(ngayBanNhapTu && ngayBanNhapDen && day > ngayBanNhapTu && day < ngayBanNhapDen));
+    button.dataset.today = String(day === today);
+    button.disabled = day > today;
+    button.setAttribute('aria-label', dinhDangNgay.format(date));
+    button.setAttribute('aria-pressed', String(day === ngayBanNhapTu || day === ngayBanNhapDen));
+    button.addEventListener('click', () => {
+      if (cheDoBanNhap !== 'custom' || (ngayBanNhapTu && ngayBanNhapDen)) {
+        ngayBanNhapTu = day;
+        ngayBanNhapDen = '';
+      } else if (day < ngayBanNhapTu) {
+        ngayBanNhapDen = ngayBanNhapTu;
+        ngayBanNhapTu = day;
+      } else ngayBanNhapDen = day;
+      cheDoBanNhap = 'custom';
+      $('history-range-error').textContent = '';
+      hienThiBangChonNgay();
+      $('history-calendar-days').querySelector(`[data-date="${day}"]`)?.focus({ preventScroll: true });
+    });
+    button.addEventListener('keydown', event => {
+      const delta = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[event.key];
+      if (!delta) return;
+      event.preventDefault();
+      const next = new Date(date);
+      next.setDate(next.getDate() + delta);
+      if (chuoiNgayLich(next) > today) return;
+      thangLich = new Date(next.getFullYear(), next.getMonth(), 1);
+      hienThiBangChonNgay();
+      $('history-calendar-days').querySelector(`[data-date="${chuoiNgayLich(next)}"]`)?.focus({ preventScroll: true });
+    });
+    cells.push(button);
+  }
+  $('history-calendar-days').replaceChildren(...cells);
+}
+
+$('history-range-open').addEventListener('click', () => {
+  const current = khoangNgayBaoCao(phamViBieuDo, Date.now(), ngayBaoCaoTu, ngayBaoCaoDen);
+  cheDoBanNhap = phamViBieuDo;
+  ngayBanNhapTu = current.fromDay;
+  ngayBanNhapDen = current.toDay;
+  const end = new Date(current.to);
+  thangLich = new Date(end.getFullYear(), end.getMonth(), 1);
+  $('history-range-error').textContent = '';
+  hienThiBangChonNgay();
+  bangNgayBaoCao.showModal();
+});
+for (const mode of ['today', 'yesterday', 'week', 'month', 'custom']) {
+  $(`history-range-preset-${mode}`).addEventListener('click', () => {
+    cheDoBanNhap = mode;
+    if (mode !== 'custom') {
+      const range = khoangNgayBaoCao(mode);
+      ngayBanNhapTu = range.fromDay;
+      ngayBanNhapDen = range.toDay;
+      const end = new Date(range.to);
+      thangLich = new Date(end.getFullYear(), end.getMonth(), 1);
+    }
+    $('history-range-error').textContent = '';
+    hienThiBangChonNgay();
   });
 }
+for (const id of ['from', 'to']) $('history-range-' + id).addEventListener('change', () => {
+  ngayBanNhapTu = $('history-range-from').value;
+  ngayBanNhapDen = $('history-range-to').value;
+  cheDoBanNhap = 'custom';
+  const anchor = ngayBanNhapDen || ngayBanNhapTu;
+  if (anchor) {
+    const date = new Date(`${anchor}T00:00:00`);
+    if (!Number.isNaN(date.getTime())) thangLich = new Date(date.getFullYear(), date.getMonth(), 1);
+  }
+  $('history-range-error').textContent = '';
+  hienThiBangChonNgay();
+});
+for (const [id, delta] of [['prev', -1], ['next', 1]])
+  $(`history-calendar-${id}`).addEventListener('click', () => {
+    thangLich = new Date(thangLich.getFullYear(), thangLich.getMonth() + delta, 1);
+    hienThiBangChonNgay();
+  });
+$('history-range-apply').addEventListener('click', () => {
+  try {
+    const selected = khoangNgayBaoCao(cheDoBanNhap, Date.now(), ngayBanNhapTu, ngayBanNhapDen);
+    phamViBieuDo = cheDoBanNhap;
+    ngayBaoCaoTu = selected.fromDay;
+    ngayBaoCaoDen = selected.toDay;
+    $('history-range-open').textContent = tenKhoangDangChon();
+    bangNgayBaoCao.close();
+    void hienThiBangLichSu();
+  } catch (error) { $('history-range-error').textContent = error.message; }
+});
+for (const id of ['close', 'cancel'])
+  $(`history-range-${id}`).addEventListener('click', () => bangNgayBaoCao.close());
+bangNgayBaoCao.addEventListener('close', () => $('history-range-open').focus({ preventScroll: true }));
+bangNgayBaoCao.addEventListener('click', event => {
+  if (event.target === bangNgayBaoCao) bangNgayBaoCao.close();
+});
 
 async function hienThiBangLichSu() {
   if (!khoMauLichSu) return;
   const token = ++lanTaiBieuDo;
-  const to = Date.now();
-  const firstDay = new Date(to);
-  firstDay.setHours(0, 0, 0, 0);
-  firstDay.setDate(firstDay.getDate() - (phamViBieuDo === 'month' ? 29 : phamViBieuDo === 'week' ? 6 : 0));
-  const oldestAllowed = firstDay.getTime();
+  const range = khoangNgayBaoCao(phamViBieuDo, Date.now(), ngayBaoCaoTu, ngayBaoCaoDen);
+  const { from: oldestAllowed, to, perMinute } = range;
+  const firstDay = new Date(oldestAllowed);
   try {
     const [samples, hasAny] = await Promise.all([khoMauLichSu.range(oldestAllowed, to), khoMauLichSu.hasAny()]);
     if (token !== lanTaiBieuDo) return;
@@ -198,7 +366,7 @@ async function hienThiBangLichSu() {
     coMauLichSu = hasAny;
     $('clear-history-all').disabled = cacMucLichSu.length === 0 && !coMauLichSu;
     const summary = thongKeLichSu(samples, cacMucLichSu, oldestAllowed, to);
-    const chartSamples = phamViBieuDo === 'today' ? samples : trungBinhMauTheoNgay(samples, oldestAllowed, to);
+    const chartSamples = perMinute ? samples : trungBinhMauTheoNgay(samples, oldestAllowed, to);
     const chartStats = thongKeLichSu(chartSamples, [], oldestAllowed, to);
     const format = (value, unit) => value == null ? '—' : `${value.toFixed(1)} ${unit}`;
     datChu('history-temp-current', format(summary.temperature.latest, '°C'));
@@ -207,28 +375,31 @@ async function hienThiBangLichSu() {
       `${summary.temperature.min.toFixed(1)}–${summary.temperature.max.toFixed(1)} °C` : 'Chưa có dữ liệu');
     datChu('history-humidity-range', summary.humidity.count ?
       `${summary.humidity.min.toFixed(1)}–${summary.humidity.max.toFixed(1)} %` : 'Chưa có dữ liệu');
-    const averageLabel = phamViBieuDo === 'today' ? 'Trung bình' : 'TB các ngày';
+    const averageLabel = perMinute ? 'Trung bình' : 'TB các ngày';
     datChu('history-temp-average', chartStats.temperature.count ? `${averageLabel} ${format(chartStats.temperature.average, '°C')}` : '—');
     datChu('history-humidity-average', chartStats.humidity.count ? `${averageLabel} ${format(chartStats.humidity.average, '%')}` : '—');
     hienThiTyLeBieuDo('history-temp-scale', chartStats.temperature, '°C');
     hienThiTyLeBieuDo('history-humidity-scale', chartStats.humidity, '%');
-    const chartGap = phamViBieuDo === 'today' ? 10 * 60_000 : 36 * 60 * 60_000;
+    const chartGap = perMinute ? 10 * 60_000 : 36 * 60 * 60_000;
     $('history-temp-line').setAttribute('d', duongBieuDo(chartSamples, 'temperatureC', oldestAllowed, to, chartGap));
     $('history-humidity-line').setAttribute('d', duongBieuDo(chartSamples, 'humidityPct', oldestAllowed, to, chartGap));
+    hienThiDiemTrungBinh('history-temp-points', chartSamples, 'temperatureC', chartStats.temperature, '°C', oldestAllowed, to, perMinute);
+    hienThiDiemTrungBinh('history-humidity-points', chartSamples, 'humidityPct', chartStats.humidity, '%', oldestAllowed, to, perMinute);
     for (const axis of document.querySelectorAll('.history-chart-axis')) {
-      axis.querySelector('.history-axis-start').textContent = phamViBieuDo === 'today' ? '00:00' :
+      axis.querySelector('.history-axis-start').textContent = perMinute ? '00:00' :
         `${String(firstDay.getDate()).padStart(2, '0')}/${String(firstDay.getMonth() + 1).padStart(2, '0')}`;
-      axis.querySelector('.history-axis-end').textContent = phamViBieuDo === 'today' ? dinhDangGioPhut.format(new Date(to)) :
+      axis.querySelector('.history-axis-end').textContent = perMinute ? dinhDangGioPhut.format(new Date(to)) :
         `${String(new Date(to).getDate()).padStart(2, '0')}/${String(new Date(to).getMonth() + 1).padStart(2, '0')}`;
     }
-    const periodText = { today: 'hôm nay', week: '7 ngày gần đây', month: '30 ngày gần đây' }[phamViBieuDo];
+    const periodText = { today: 'hôm nay', yesterday: 'hôm qua', week: '7 ngày gần đây', month: '30 ngày gần đây', custom: 'khoảng đã chọn' }[phamViBieuDo];
     datChu('history-period', samples.length ?
-      `${phamViBieuDo === 'today' ? 'Mỗi điểm là số đo theo phút' : 'Mỗi điểm là trung bình của một ngày'}; có dữ liệu từ ${dinhDangNgayGio.format(new Date(samples[0].at))} đến ${dinhDangNgayGio.format(new Date(samples.at(-1).at))}.` :
+      `${perMinute ? 'Mỗi điểm là số đo theo phút' : 'Mỗi điểm là trung bình của một ngày'}; có dữ liệu từ ${dinhDangNgayGio.format(new Date(samples[0].at))} đến ${dinhDangNgayGio.format(new Date(samples.at(-1).at))}.` :
       `Chưa có số đo trong ${periodText}.`);
     datChu('history-flame-count', String(summary.alerts.flame));
     datChu('history-gas-count', String(summary.alerts.gas));
     datChu('history-user-range-count', String(summary.alerts.user));
-    const bins = nhomCanhBaoTheoNgay(recentAlerts, oldestAllowed, to);
+    const bins = nhomCanhBaoTheoNgay(recentAlerts, oldestAllowed, to)
+      .filter(bin => bin.flame > 0 || bin.gas > 0);
     const maxCount = Math.max(1, ...bins.flatMap(bin => [bin.flame, bin.gas]));
     const columns = bins.map(bin => {
       const column = document.createElement('div');
@@ -259,17 +430,18 @@ async function hienThiBangLichSu() {
     const scroll = $('history-activity-scroll');
     const wasAtEnd = !scroll.dataset.scrolledInitially ||
       scroll.scrollLeft >= scroll.scrollWidth - scroll.clientWidth - 2;
-    $('history-activity-bars').style.setProperty('--activity-days', String(bins.length));
+    $('history-activity-bars').style.setProperty('--activity-days', String(Math.max(1, bins.length)));
     $('history-activity-bars').replaceChildren(...columns);
     if (!$('history-view').hidden) {
-      if (wasAtEnd) scroll.scrollLeft = scroll.scrollWidth - scroll.clientWidth;
+      if (scroll.scrollWidth <= scroll.clientWidth) scroll.scrollLeft = 0;
+      else if (wasAtEnd) scroll.scrollLeft = scroll.scrollWidth - scroll.clientWidth;
       scroll.dataset.scrolledInitially = 'true';
     }
-    const dailyAlerts = bins.filter(bin => bin.flame || bin.gas)
-      .map(bin => `${dinhDangNgay.format(new Date(bin.at))}: lửa ${bin.flame}, khí gas ${bin.gas}`).join('; ');
+    const dailyAlerts = bins.map(bin =>
+      `${dinhDangNgay.format(new Date(bin.at))}: lửa ${bin.flame}, khí gas ${bin.gas}`).join('; ');
     $('history-activity-bars').setAttribute('aria-label',
       dailyAlerts ? `Cảnh báo theo ngày. ${dailyAlerts}.` : 'Không có cảnh báo lửa hoặc khí gas trong các ngày hiển thị.');
-    $('history-activity-empty').hidden = !bins.every(bin => !bin.flame && !bin.gas);
+    $('history-activity-empty').hidden = bins.length > 0;
     for (const [id, title, empty] of [
       ['history-flame-last', 'Phát hiện lửa', 'Chưa ghi nhận'],
       ['history-gas-last', 'Phát hiện khí gas', 'Chưa ghi nhận'],
@@ -298,6 +470,8 @@ function datPhamViLichSu(scope) {
   });
   cacMucLichSu = [];
   nguonLichSu = 'all';
+  ngayLichSu = '';
+  $('history-date').value = '';
   trangLichSu = 1;
   phutMauCuoi = null;
   coMauLichSu = false;
@@ -425,7 +599,7 @@ function hienThiWifi() {
     thongBaoWifi = 'Chưa nhận được xác nhận. Kiểm tra kết nối của ESP32 trước khi thử lại.';
   }
   datChu('wifi-current-ssid', duLieuThietBi.wifiSsid || 'Chưa có dữ liệu');
-  const listKey = JSON.stringify([duLieuThietBi.wifiSavedSsids, duLieuThietBi.wifiSsid, wifiRevealed]);
+  const listKey = JSON.stringify([duLieuThietBi.wifiSavedSsids, duLieuThietBi.wifiSsid]);
   if (wifiListKey !== listKey) {
     wifiListKey = listKey;
     const rows = duLieuThietBi.wifiSavedSsids.map(ssid => {
@@ -433,11 +607,6 @@ function hienThiWifi() {
       const name = document.createElement('span');
       name.textContent = ssid;
       item.append(name);
-      if (wifiRevealed?.[ssid]) {
-        const password = document.createElement('code');
-        password.textContent = wifiRevealed[ssid];
-        item.append(password);
-      }
       item.dataset.active = String(ssid === duLieuThietBi.wifiSsid);
       return item;
     });
@@ -448,6 +617,20 @@ function hienThiWifi() {
     }
     $('wifi-saved-list').replaceChildren(...rows);
   }
+  const secretKey = JSON.stringify(wifiRevealed);
+  if (wifiSecretKey !== secretKey) {
+    wifiSecretKey = secretKey;
+    const rows = Object.entries(wifiRevealed || {}).map(([ssid, password]) => {
+      const item = document.createElement('li');
+      const name = document.createElement('strong');
+      name.textContent = ssid;
+      const secret = document.createElement('code');
+      secret.textContent = password;
+      item.append(name, secret);
+      return item;
+    });
+    $('wifi-secret-list').replaceChildren(...rows);
+  }
   $('wifi-settings-button').disabled = !chuSoHuuDangNhap || duLieuThietBi.wifiConfigVersion < 3 ||
     duLieuCu(duLieuThietBi.updatedAt) || Boolean(wifiDangCho);
   const revealButton = $('reveal-wifi-passwords');
@@ -455,10 +638,18 @@ function hienThiWifi() {
   revealButton.disabled = !chuSoHuuDangNhap || Boolean(wifiRevealRequest) ||
     (!wifiRevealed && (duLieuThietBi.wifiConfigVersion < 4 ||
       duLieuCu(duLieuThietBi.updatedAt) || !duLieuThietBi.wifiSavedSsids.length));
-  datChu('wifi-reveal-status', wifiRevealMessage ||
-    (chuSoHuuDangNhap && duLieuThietBi.wifiConfigVersion >= 2 && duLieuThietBi.wifiConfigVersion < 4 ?
-      'Cần nạp firmware mới để xem mật khẩu đã lưu.' : ''));
+  datChu('wifi-reveal-help', chuSoHuuDangNhap && duLieuThietBi.wifiConfigVersion >= 2 &&
+    duLieuThietBi.wifiConfigVersion < 4 ? 'Cần nạp firmware mới để xem mật khẩu đã lưu.' : '');
+  datChu('wifi-reveal-status', wifiRevealMessage);
   $('wifi-reveal-status').dataset.error = String(wifiRevealError);
+  const panel = $('wifi-secret-panel');
+  const showPanel = Boolean(wifiRevealed || wifiRevealMessage);
+  const restoreFocus = !showPanel && !panel.hidden && panel.contains(document.activeElement);
+  const openPanel = showPanel && panel.hidden;
+  panel.hidden = !showPanel;
+  revealButton.setAttribute('aria-expanded', String(showPanel));
+  if (restoreFocus) revealButton.focus({ preventScroll: true });
+  else if (openPanel) panel.focus({ preventScroll: true });
   const canNapFirmware = duLieuThietBi.wifiConfigVersion < 3;
   const message = wifiDangCho ? 'Đang chờ ESP32 lưu Wi-Fi và xác nhận…' : thongBaoWifi ||
     (canNapFirmware ? 'Cần nạp firmware mới để lưu trước mạng Wi-Fi chưa xuất hiện.' :
@@ -826,6 +1017,8 @@ if (cheDoMoPhong) {
       khoMauLichSu = null;
       cacMucLichSu = [];
       nguonLichSu = 'all';
+      ngayLichSu = '';
+      $('history-date').value = '';
       coMauLichSu = false;
       lanTaiBieuDo++;
       duLieuTruoc = null;
@@ -1002,6 +1195,16 @@ if (cheDoMoPhong) {
   });
   $('show-wifi-password').addEventListener('change', () => {
     $('wifi-password').type = $('show-wifi-password').checked ? 'text' : 'password';
+  });
+  $('wifi-secret-close').addEventListener('click', () => {
+    anMatKhauWifi();
+    hienThiWifi();
+  });
+  $('wifi-secret-panel').addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    anMatKhauWifi();
+    hienThiWifi();
   });
   $('reveal-wifi-passwords').addEventListener('click', async () => {
     if (!chuSoHuuDangNhap) return;

@@ -154,7 +154,7 @@
             }
           },
           "wifiReveal": {
-            ".write": "auth != null && auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2' && newData.exists()",
+            ".write": "auth != null && auth.uid === 'OWNER_UID_HERE' && newData.exists()",
             ".validate": "newData.hasChildren(['requestId'])",
             "requestId": {
               ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64 && newData.val().matches(/^[A-Za-z0-9_-]+$/)"
@@ -168,8 +168,8 @@
           }
         },
         "wifiReveal": {
-          ".read": "auth != null && auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2'",
-          ".write": "auth != null && ((auth.uid === 'NfMfoVPKh3fAHQedBJ93DumnkMn1' && newData.exists()) || ((auth.uid === 'NfMfoVPKh3fAHQedBJ93DumnkMn1' || auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2') && !newData.exists()))",
+          ".read": "auth != null && auth.uid === 'OWNER_UID_HERE'",
+          ".write": "auth != null && ((auth.uid === 'DEVICE_UID_HERE' && newData.exists()) || ((auth.uid === 'DEVICE_UID_HERE' || auth.uid === 'OWNER_UID_HERE') && !newData.exists()))",
           ".validate": "newData.hasChildren(['requestId', 'networks'])",
           "requestId": {
             ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64"

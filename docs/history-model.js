@@ -41,9 +41,57 @@ export function lichSuThaoTac(values, at, outcome = 'sent', actor = null) {
   };
 }
 
-export function locLichSu(items, source = 'all') {
-  if (source === 'all') return items;
-  return items.filter(item => (item.source === 'user' ? 'user' : 'system') === source);
+export function locLichSu(items, source = 'all', day = '') {
+  const bySource = source === 'all' ? items :
+    items.filter(item => (item.source === 'user' ? 'user' : 'system') === source);
+  if (!day) return bySource;
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!parts) return [];
+  const [, year, month, date] = parts.map(Number);
+  const start = new Date(year, month - 1, date);
+  if (start.getFullYear() !== year || start.getMonth() !== month - 1 || start.getDate() !== date)
+    return [];
+  const from = start.getTime();
+  const to = new Date(year, month - 1, date + 1).getTime();
+  return bySource.filter(item => item.at >= from && item.at < to);
+}
+
+function ngayTuChuoi(value) {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+  if (!parts) return null;
+  const [, year, month, day] = parts.map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : null;
+}
+
+function chuoiNgay(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+export function khoangNgayBaoCao(mode, now = Date.now(), customFrom = '', customTo = '') {
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  let first = new Date(today);
+  let last = new Date(today);
+  if (mode === 'yesterday') first.setDate(first.getDate() - 1);
+  else if (mode === 'week') first.setDate(first.getDate() - 6);
+  else if (mode === 'month') first.setDate(first.getDate() - 29);
+  else if (mode === 'custom') {
+    first = ngayTuChuoi(customFrom);
+    last = ngayTuChuoi(customTo);
+    if (!first || !last || first > last || last > today) throw new RangeError('Chọn ngày bắt đầu và kết thúc hợp lệ, không sau hôm nay.');
+    const days = (Date.UTC(last.getFullYear(), last.getMonth(), last.getDate()) -
+      Date.UTC(first.getFullYear(), first.getMonth(), first.getDate())) / 86_400_000 + 1;
+    if (days > 92) throw new RangeError('Khoảng báo cáo tối đa 92 ngày.');
+  } else if (mode !== 'today') throw new RangeError('Khoảng ngày báo cáo không hợp lệ.');
+  if (mode === 'yesterday') last = new Date(first);
+  const end = new Date(last);
+  end.setDate(end.getDate() + 1);
+  return {
+    from: first.getTime(), to: Math.min(now, end.getTime() - 1),
+    perMinute: first.getTime() === last.getTime(),
+    fromDay: chuoiNgay(first), toDay: chuoiNgay(last)
+  };
 }
 
 export function lamSachLichSuHeThongCu(items) {

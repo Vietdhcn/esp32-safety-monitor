@@ -57,6 +57,42 @@ test('history separates device events from buttons pressed by this user', () => 
     { actorUid: 'operator-1', actorEmail: 'operator@example.com' });
 });
 
+test('history search filters by local calendar day together with source', () => {
+  const day = new Date(2026, 9, 18);
+  const previous = new Date(2026, 9, 17, 23, 59, 59, 999);
+  const next = new Date(2026, 9, 19);
+  const entries = [
+    { at: previous.getTime(), source: 'system' },
+    { at: day.getTime(), source: 'system' },
+    { at: new Date(2026, 9, 18, 23, 59, 59, 999).getTime(), source: 'user' },
+    { at: next.getTime(), source: 'user' }
+  ];
+  assert.deepEqual(historyModel.locLichSu(entries, 'all', '2026-10-18'), entries.slice(1, 3));
+  assert.deepEqual(historyModel.locLichSu(entries, 'system', '2026-10-18'), [entries[1]]);
+  assert.deepEqual(historyModel.locLichSu(entries, 'user', '2026-10-18'), [entries[2]]);
+  assert.deepEqual(historyModel.locLichSu(entries, 'all', '2026-10-20'), []);
+  assert.deepEqual(historyModel.locLichSu(entries, 'all', ''), entries);
+});
+
+test('report date ranges use local days and switch between minute and daily charts', () => {
+  const { khoangNgayBaoCao } = historyModel;
+  const now = new Date(2026, 9, 18, 16, 30, 0).getTime();
+  const start = (day, month = 9) => new Date(2026, month, day).getTime();
+  assert.deepEqual(khoangNgayBaoCao('today', now),
+    { from: start(18), to: now, perMinute: true, fromDay: '2026-10-18', toDay: '2026-10-18' });
+  assert.deepEqual(khoangNgayBaoCao('yesterday', now),
+    { from: start(17), to: start(18) - 1, perMinute: true, fromDay: '2026-10-17', toDay: '2026-10-17' });
+  assert.equal(khoangNgayBaoCao('week', now).from, start(12));
+  assert.equal(khoangNgayBaoCao('month', now).from, new Date(2026, 8, 19).getTime());
+  assert.deepEqual(khoangNgayBaoCao('custom', now, '2026-10-08', '2026-10-10'),
+    { from: start(8), to: start(11) - 1, perMinute: false, fromDay: '2026-10-08', toDay: '2026-10-10' });
+  assert.deepEqual(khoangNgayBaoCao('custom', now, '2026-10-18', '2026-10-18'),
+    { from: start(18), to: now, perMinute: true, fromDay: '2026-10-18', toDay: '2026-10-18' });
+  assert.throws(() => khoangNgayBaoCao('custom', now, '2026-10-19', '2026-10-20'));
+  assert.throws(() => khoangNgayBaoCao('custom', now, '2026-10-18', '2026-10-17'));
+  assert.throws(() => khoangNgayBaoCao('custom', now, '2026-01-01', '2026-10-18'));
+});
+
 test('history deletion removes only the chosen source, including legacy system entries', () => {
   const entries = [
     { title: 'system', source: 'system' },

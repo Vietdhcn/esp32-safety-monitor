@@ -16,8 +16,10 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   }
   assert.doesNotMatch(html, /id="fan-(?:30|60|90|100)"/);
   assert.match(html, /id="operator-list"/, 'the owner needs a list of granted accounts');
-  assert.ok(html.indexOf('id="wifi-settings-section"') < html.indexOf('id="operator-management-section"'),
-    'Wi-Fi settings should appear above the operator list');
+  assert.ok(html.indexOf('id="create-account-section"') < html.indexOf('id="change-password-section"') &&
+    html.indexOf('id="change-password-section"') < html.indexOf('id="operator-management-section"') &&
+    html.indexOf('id="operator-management-section"') < html.indexOf('id="wifi-settings-section"'),
+  'account forms stay first, granted accounts get their own row, and Wi-Fi follows');
   assert.match(html, /id="reveal-wifi-passwords"/);
   const originals = new Map(['document', 'window', 'localStorage', 'setInterval', 'setTimeout', 'clearTimeout', '__firebaseLoginTest']
     .map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -31,9 +33,10 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   const createNode = () => ({ hidden: false, style: {}, dataset: {}, listeners: {}, value: '', checked: false, attributes: {}, children: [],
     classList: { toggle() {} }, closest() { return this; }, setAttribute(key, value) { this.attributes[key] = value; },
     contains(target) { return this === target; },
+    focus() { globalThis.document.activeElement = this; },
     addEventListener(event, callback) { this.listeners[event] = callback; },
     replaceChildren(...items) { this.children = items; }, append(...items) { this.children.push(...items); } });
-  globalThis.document = { listeners: {}, addEventListener(event, callback) { this.listeners[event] = callback; },
+  globalThis.document = { listeners: {}, activeElement: null, addEventListener(event, callback) { this.listeners[event] = callback; },
     createElement: createNode, getElementById(id) {
     if (!nodes.has(id)) nodes.set(id, createNode());
     return nodes.get(id);
@@ -129,14 +132,15 @@ test('authenticated controls send atomic commands and await device acknowledgeme
     'the removed speed control must not submit PWM commands');
   const historyKey = 'safety-history:esp32s-30p-01:shared';
   const oldOperatorKey = 'safety-history:esp32s-30p-01:operator';
+  const historyNow = Date.now();
   storage.set(oldOperatorKey, JSON.stringify({ version: 2, items: [
-    { at: Date.now(), source: 'system', kind: 'device', title: 'Còi: Bật', detail: 'Chế độ cũ.' },
-    { at: Date.now(), source: 'system', kind: 'danger', title: 'Phát hiện khí gas', detail: 'Cảm biến.' },
-    { at: Date.now(), source: 'system', kind: 'device', title: 'Quạt đã bật', detail: 'Thiết bị.' },
-    { at: Date.now(), source: 'user', kind: 'user', title: 'Bật quạt', detail: 'Đã nhấn.' }
+    { at: historyNow, source: 'system', kind: 'device', title: 'Còi: Bật', detail: 'Chế độ cũ.' },
+    { at: historyNow, source: 'system', kind: 'danger', title: 'Phát hiện khí gas', detail: 'Cảm biến.' },
+    { at: historyNow, source: 'system', kind: 'device', title: 'Quạt đã bật', detail: 'Thiết bị.' },
+    { at: historyNow - 1000, source: 'user', kind: 'user', title: 'Bật quạt', detail: 'Đã nhấn.' }
   ] }));
   storage.set('safety-history:esp32s-30p-01:other-user', JSON.stringify({ version: 3, items: [
-    { at: Date.now() - 1000, source: 'user', kind: 'user', title: 'Tắt quạt', detail: 'Đã nhấn.' }
+    { at: historyNow - 2000, source: 'user', kind: 'user', title: 'Tắt quạt', detail: 'Đã nhấn.' }
   ] }));
   assert.doesNotThrow(() => state.authChanged({ uid: 'operator' }));
   assert.ok(storage.has(historyKey), 'switching accounts must use one history for the device');
@@ -455,23 +459,34 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   state.readings.get('devices/esp32s-30p-01/wifiReveal')({ val: () => ({
     requestId: revealId, networks: [{ ssid: 'Old network', password: 'old-password-123' }]
   }) });
-  assert.ok(nodes.get('wifi-saved-list').children[0].children.some(child =>
-    child.textContent === 'old-password-123'), 'owner can see the saved password returned by ESP32');
+  assert.equal(nodes.get('wifi-secret-panel').hidden, false);
+  assert.ok(nodes.get('wifi-secret-list').children[0].children.some(child =>
+    child.textContent === 'old-password-123'), 'owner can see the saved password in the overlay');
+  assert.equal(nodes.get('wifi-saved-list').children[0].children.some(child =>
+    child.textContent === 'old-password-123'), false, 'passwords do not expand the saved network list');
   assert.deepEqual(state.grant, { path: 'devices/esp32s-30p-01/wifiReveal', value: null },
     'the browser removes the one-time password response after reading it');
   const autoHide = [...timeouts.values()].find(timer => timer.delay === 60_000);
   assert.ok(autoHide, 'revealed passwords have a 60-second expiry');
   autoHide.callback();
-  assert.equal(nodes.get('wifi-saved-list').children[0].children.some(child =>
-    child.textContent === 'old-password-123'), false, 'passwords disappear when the timer expires');
+  assert.equal(nodes.get('wifi-secret-panel').hidden, true, 'password overlay closes on expiry');
+  assert.equal(nodes.get('wifi-secret-list').children.length, 0, 'passwords disappear when the timer expires');
   await nodes.get('reveal-wifi-passwords').listeners.click();
   state.readings.get('devices/esp32s-30p-01/wifiReveal')({ val: () => ({
     requestId: state.grant.value.requestId,
     networks: [{ ssid: 'Old network', password: 'old-password-123' }]
   }) });
   await nodes.get('reveal-wifi-passwords').listeners.click();
-  assert.equal(nodes.get('wifi-saved-list').children[0].children.some(child =>
-    child.textContent === 'old-password-123'), false, 'hide clears the displayed password');
+  assert.equal(nodes.get('wifi-secret-panel').hidden, true);
+  assert.equal(nodes.get('wifi-secret-list').children.length, 0, 'hide clears the displayed password');
+  await nodes.get('reveal-wifi-passwords').listeners.click();
+  state.readings.get('devices/esp32s-30p-01/wifiReveal')({ val: () => ({
+    requestId: state.grant.value.requestId,
+    networks: [{ ssid: 'Old network', password: 'old-password-123' }]
+  }) });
+  nodes.get('wifi-secret-close').listeners.click();
+  assert.equal(nodes.get('wifi-secret-panel').hidden, true, 'close button hides the password overlay');
+  assert.equal(nodes.get('wifi-secret-list').children.length, 0, 'close button removes passwords from the DOM');
   nodes.get('show-wifi-password').checked = true;
   nodes.get('show-wifi-password').listeners.change();
   assert.equal(nodes.get('wifi-password').type, 'text');
