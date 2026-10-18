@@ -86,6 +86,8 @@ def run_case(browser, url, width, font_name, font_css, theme, errors):
     try:
         page.goto(url, wait_until="networkidle")
         page.locator("#dashboard").wait_for(state="visible")
+        if page.locator("#notice-details").count():
+            errors.append(f"{case}: obsolete device notice is still visible")
         page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
         if font_css:
             page.add_style_tag(content=font_css)
@@ -159,10 +161,6 @@ def run_case(browser, url, width, font_name, font_css, theme, errors):
             compare(baseline, snapshot(page), f"{case}/{state}", errors)
             page.evaluate("originals => { for (const [id, value] of Object.entries(originals)) document.getElementById(id).textContent = value; }", originals)
 
-        page.locator("#notice-details summary").evaluate("summary => summary.click()")
-        if not page.locator("#notice-details").evaluate("details => details.open"):
-            errors.append(f"{case}/notice: did not open")
-        compare(baseline, snapshot(page), f"{case}/notice", errors)
     except Exception as exc:
         errors.append(f"{case}: {exc}")
     finally:

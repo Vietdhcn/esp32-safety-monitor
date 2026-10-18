@@ -7,6 +7,8 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.match(html, /id="fan-off"/);
   assert.match(html, /id="fan-on"/);
   assert.match(html, /id="fan-auto"/);
+  assert.doesNotMatch(html, /id="notice-details"|id="notice-count"|id="noise-text"/,
+    'the single-purpose device notice is removed from the dashboard');
   assert.doesNotMatch(html.match(/<section class="metric-grid"[\s\S]*?<\/section>/)?.[0] ?? '', /Quạt thông gió/);
   for (const ids of [['led-red', 'led-green', 'led-off', 'led-auto'], ['buzzerMode-on', 'buzzerMode-off', 'buzzerMode-auto'], ['fan-off', 'fan-on', 'fan-auto']]) {
     const positions = ids.map(id => html.indexOf(`id="${id}"`));
@@ -134,19 +136,9 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(nodes.get('temperature-value').textContent, '—', 'a failed reading must clear the old value');
   assert.equal(nodes.get('humidity-value').textContent, '—');
   state.reading({ val: () => ({ ...safe, flameNoise: true, resetReason: 'brownout' }) });
-  assert.equal(nodes.get('notice-count').textContent, '2');
-  assert.equal(nodes.get('notice-count').hidden, false);
-  assert.match(nodes.get('noise-text').textContent, /sụt áp nguồn/);
-  assert.doesNotMatch(html, /id="noise-banner"/, 'diagnostic notices should not insert a banner above the tabs');
-  nodes.get('notice-details').open = true;
-  document.listeners.click({ target: nodes.get('tab-overview') });
-  assert.equal(nodes.get('notice-details').open, false, 'a click elsewhere closes the notice panel');
-  nodes.get('notice-details').open = true;
-  document.listeners.keydown({ key: 'Escape' });
-  assert.equal(nodes.get('notice-details').open, false, 'Escape closes the notice panel');
+  assert.equal(nodes.has('notice-details'), false, 'diagnostic telemetry must not recreate a notice');
+  assert.equal(nodes.has('noise-text'), false);
   state.reading({ val: () => safe });
-  assert.equal(nodes.get('notice-count').hidden, true);
-  assert.equal(nodes.get('notice-details').open, false, 'an obsolete notice closes itself');
   state.reading({ val: () => ({ ...safe, fanSpeedSupported: true }) });
   assert.equal(nodes.get('fan-on').disabled, true, 'old PWM firmware must not accept an on/off web command');
   assert.match(nodes.get('fan-mode').textContent, /nạp firmware/);

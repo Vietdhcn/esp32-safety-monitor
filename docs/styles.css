@@ -135,16 +135,6 @@ footer { padding: 20px 0 24px; font-size: 12px; text-align: center; }
 .hero p { margin-top: 6px; max-width: 560px; }
 .hero-status { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; flex: none; }
 .hero-status-top { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
-.notice-details { position: relative; }
-.notice-summary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-inline-size: 140px; min-height: 36px; padding: 5px 10px; border: 1px solid var(--stroke); border-radius: var(--radius-sm); background: var(--card); color: var(--text-2); cursor: pointer; list-style: none; white-space: nowrap; }
-.notice-summary::-webkit-details-marker { display: none; }
-.notice-summary:hover, .notice-details[open] .notice-summary { background: var(--subtle-fill); color: var(--text); }
-.notice-summary svg { width: 16px; height: 16px; }
-.notice-details.has-notice .notice-summary { border-color: color-mix(in srgb, var(--caution) 35%, var(--stroke)); color: var(--caution); }
-.notice-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--caution-fill); font-size: 11px; font-weight: 700; }
-.notice-content { position: absolute; z-index: 5; top: calc(100% + 8px); right: 0; width: min(360px, calc(100vw - 48px)); max-height: min(50vh, 320px); overflow: auto; padding: 14px 16px; border: 1px solid var(--stroke-strong); border-radius: var(--radius); background: var(--card); box-shadow: 0 8px 24px rgba(0, 0, 0, .14); color: var(--text); text-align: left; }
-.notice-content strong { font-weight: 600; }
-.notice-content p { margin-top: 4px; color: var(--text-2); overflow-wrap: anywhere; }
 .connection { display: flex; align-items: flex-start; gap: 10px; text-align: right; }
 .connection strong, .connection small { display: block; }
 .connection strong { font-size: 13px; font-weight: 600; }
@@ -305,8 +295,6 @@ form input[type="email"]:focus, form input[type="password"]:focus { outline: non
   .hero { flex-direction: column; align-items: flex-start; padding: 20px; }
   .hero-status { align-items: flex-start; width: 100%; }
   .hero-status-top { width: 100%; justify-content: flex-start; }
-  .notice-details { position: relative; width: 100%; }
-  .notice-content { left: 0; right: auto; width: 100%; }
   .connection { text-align: left; }
   .connection-dot { order: 0; }
   .login { grid-template-columns: 1fr; padding: 20px; }

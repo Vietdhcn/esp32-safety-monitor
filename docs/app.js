@@ -6,13 +6,6 @@ const $ = id => document.getElementById(id);
 const thongBaoCauHinh = $('setup-message');
 const khungDangNhap = $('login-panel');
 const bangDieuKhien = $('dashboard');
-const khungThongBao = $('notice-details');
-document.addEventListener('click', event => {
-  if (khungThongBao.open && !khungThongBao.contains(event.target)) khungThongBao.open = false;
-});
-document.addEventListener('keydown', event => {
-  if (event.key === 'Escape') khungThongBao.open = false;
-});
 const duongDanTrang = new URL(window.location.href);
 const xemTruocNoiBo = ['localhost', '127.0.0.1'].includes(duongDanTrang.hostname);
 const cheDoMoPhong = laMoPhongNoiBo(duongDanTrang);
@@ -233,19 +226,6 @@ function hienThi() {
     duLieuThietBi.gasWarmup ? 'MQ-2 đang làm nóng (~1 phút sau khi cấp nguồn)' : 'Ngưỡng DO trên MQ-2');
   $('flame-value').closest('.metric-card').classList.toggle('alert', !duLieuQuaCu && duLieuThietBi.flameDetected === true);
   $('gas-alarm-value').closest('.metric-card').classList.toggle('alert', !duLieuQuaCu && duLieuThietBi.gasAlarm === true);
-
-  const nghiNhieu = !duLieuQuaCu && duLieuThietBi.flameNoise;
-  const sutAp = !duLieuQuaCu && duLieuThietBi.resetReason === 'brownout';
-  const soLuuY = Number(nghiNhieu) + Number(sutAp);
-  khungThongBao.classList.toggle('has-notice', soLuuY > 0);
-  if (!soLuuY) khungThongBao.open = false;
-  $('notice-count').hidden = soLuuY === 0;
-  datChu('notice-count', String(soLuuY));
-  datChu('noise-text', soLuuY ? [
-    nghiNhieu ? 'Tín hiệu lửa xuất hiện khi quạt chạy rồi mất ngay khi quạt dừng, thường do cổng USB máy tính không đủ dòng cho quạt.' : '',
-    sutAp ? 'ESP32 vừa khởi động lại vì sụt áp nguồn (brownout).' : '',
-    'Nên cấp nguồn bằng cục sạc 5 V, hoặc chuyển VCC cảm biến lửa sang chân 3V3.'
-  ].filter(Boolean).join(' ') : 'Không có lưu ý thiết bị.');
 
   hienThiDieuKhien(duLieuQuaCu, coCanhBao);
 }
