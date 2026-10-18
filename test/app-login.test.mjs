@@ -37,7 +37,11 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   } };
   globalThis.window = { location: { href: 'https://example.com/' }, confirm: () => true };
   const storage = new Map();
-  globalThis.localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) };
+  globalThis.localStorage = {
+    get length() { return storage.size; }, key: index => [...storage.keys()][index] ?? null,
+    getItem: key => storage.get(key) ?? null,
+    setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key)
+  };
   globalThis.setInterval = () => 0;
   const state = globalThis.__firebaseLoginTest = {};
   const moduleUrl = code => `data:text/javascript,${encodeURIComponent(code)}`;
@@ -87,7 +91,7 @@ test('authenticated controls send atomic commands and await device acknowledgeme
         } };`
   };
   let source = await readFile(new URL('../docs/app.js', import.meta.url), 'utf8');
-  for (const name of ['config', 'dashboard-model', 'history-model', 'history-samples-store']) {
+  for (const name of ['config', 'dashboard-model', 'history-model', 'history-samples-store', 'history-device-store']) {
     source = source.replace(new RegExp(`'\\./${name}\\.js(?:\\?[^']*)?'`),
       JSON.stringify(new URL(`../docs/${name}.js`, import.meta.url).href));
   }
@@ -112,17 +116,23 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.deepEqual(state.authCalls, [['persistence', 'session'], ['signIn', 'owner@example.com', 'another-secret']]);
   assert.equal(nodes.get('speed-button')?.listeners.click, undefined,
     'the removed speed control must not submit PWM commands');
-  const historyKey = 'safety-history:esp32s-30p-01:operator';
-  storage.set(historyKey, JSON.stringify({ version: 2, items: [
+  const historyKey = 'safety-history:esp32s-30p-01:shared';
+  const oldOperatorKey = 'safety-history:esp32s-30p-01:operator';
+  storage.set(oldOperatorKey, JSON.stringify({ version: 2, items: [
     { at: Date.now(), source: 'system', kind: 'device', title: 'Còi: Bật', detail: 'Chế độ cũ.' },
     { at: Date.now(), source: 'system', kind: 'danger', title: 'Phát hiện khí gas', detail: 'Cảm biến.' },
     { at: Date.now(), source: 'system', kind: 'device', title: 'Quạt đã bật', detail: 'Thiết bị.' },
     { at: Date.now(), source: 'user', kind: 'user', title: 'Bật quạt', detail: 'Đã nhấn.' }
   ] }));
+  storage.set('safety-history:esp32s-30p-01:other-user', JSON.stringify({ version: 3, items: [
+    { at: Date.now() - 1000, source: 'user', kind: 'user', title: 'Tắt quạt', detail: 'Đã nhấn.' }
+  ] }));
   assert.doesNotThrow(() => state.authChanged({ uid: 'operator' }));
-  assert.equal(JSON.parse(storage.get(historyKey)).version, 3);
+  assert.ok(storage.has(historyKey), 'switching accounts must use one history for the device');
+  assert.equal(JSON.parse(storage.get(historyKey)).version, 4);
   assert.deepEqual(JSON.parse(storage.get(historyKey)).items.map(item => item.title),
-    ['Phát hiện khí gas', 'Bật quạt'], 'stored device output logs are removed on load');
+    ['Phát hiện khí gas', 'Bật quạt', 'Tắt quạt'], 'existing histories are merged without old output logs');
+  assert.equal(storage.has(oldOperatorKey), false, 'migrated account history is removed only after shared history is saved');
   assert.equal(state.path, 'devices/esp32s-30p-01/telemetry');
   assert.equal(nodes.get('dashboard').hidden, false);
   assert.equal(nodes.get('history-view').hidden, true, 'overview is the default tab');
@@ -137,6 +147,9 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(nodes.get('overview-view').hidden, false);
   assert.equal(nodes.get('history-view').hidden, true);
   assert.equal(forcedTabScrolls, 0, 'switching visible tabs must not force the page to jump');
+  state.authChanged({ uid: 'other-user', email: 'other@example.com' });
+  assert.equal(nodes.get('history-count').textContent, '3', 'another account sees the same device history');
+  state.authChanged({ uid: 'operator', email: 'operator@example.com' });
   const safe = { flameDetected: false, gasAlarm: false, fanOn: false,
     controlsVersion: 2,
     alarmLedOn: false, statusLedOn: true, buzzerOn: true, alarmLedMode: 'auto',

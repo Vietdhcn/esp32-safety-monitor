@@ -15,7 +15,7 @@ export function cacThayDoiLichSu(duLieuTruoc, duLieuHienTai) {
   return cacMuc;
 }
 
-export function lichSuThaoTac(values, at, outcome = 'sent') {
+export function lichSuThaoTac(values, at, outcome = 'sent', actor = null) {
   const cacThaoTac = [
     ['fanOn', giaTri => giaTri ? 'Bật quạt' : 'Tắt quạt'],
     ['ledMode', giaTri => `Đèn hai màu: ${{ auto: 'Tự động', red: 'Đỏ', green: 'Xanh', off: 'Tắt' }[giaTri]}`],
@@ -34,6 +34,8 @@ export function lichSuThaoTac(values, at, outcome = 'sent') {
   return {
     at, source: 'user', kind: outcome === 'failed' ? 'danger' : 'user',
     title,
+    ...(actor?.uid ? { actorUid: actor.uid } : {}),
+    ...(actor?.email ? { actorEmail: actor.email } : {}),
     detail: outcome === 'failed' ? 'Gửi lệnh thất bại.' :
       outcome === 'demo' ? 'Đã áp dụng trong bản mô phỏng.' : 'Đã gửi lệnh đến thiết bị.'
   };

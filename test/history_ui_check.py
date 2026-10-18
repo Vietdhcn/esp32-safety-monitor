@@ -40,6 +40,25 @@ def seed(page):
     page.wait_for_function("document.querySelector('#history-temp-line').getAttribute('d').length > 0")
 
 
+def check_account_sample_migration(page):
+    result = page.evaluate("""async () => {
+      const { taoKhoMauLichSu } = await import('./history-samples-store.js');
+      const base = Math.floor(Date.now() / 60000) * 60000 - 180000;
+      const owner = taoKhoMauLichSu('migration-device:owner');
+      const operator = taoKhoMauLichSu('migration-device:operator');
+      const shared = taoKhoMauLichSu('migration-device:shared');
+      await owner.save({at: base, temperatureC: 25});
+      await operator.save({at: base + 60000, temperatureC: 26});
+      await shared.save({at: base + 120000, temperatureC: 27});
+      await shared.migrateLegacy('migration-device:');
+      return {
+        values: (await shared.range(base, base + 120000)).map(sample => sample.temperatureC),
+        ownerEmpty: !(await owner.hasAny()), operatorEmpty: !(await operator.hasAny())
+      };
+    }""")
+    assert result == {"values": [25, 26, 27], "ownerEmpty": True, "operatorEmpty": True}
+
+
 def main():
     server = ThreadingHTTPServer(("127.0.0.1", 0), partial(QuietHandler, directory=str(DOCS)))
     Thread(target=server.serve_forever, daemon=True).start()
@@ -49,6 +68,7 @@ def main():
             for width in (1280, 390):
                 page = browser.new_page(viewport={"width": width, "height": 820}, color_scheme="dark")
                 page.goto(f"http://127.0.0.1:{server.server_port}/?demo=1")
+                check_account_sample_migration(page)
                 seed(page)
                 assert page.locator("#history-count").inner_text() == "125"
                 assert page.locator("#history-page-label").inner_text() == "Trang 1 / 3"
@@ -71,7 +91,7 @@ def main():
             browser.close()
     finally:
         server.shutdown()
-    print("PASS: history dashboard, chart, 125 events, pagination, ranges, desktop and phone")
+    print("PASS: history dashboard, 125 events, account sample migration, desktop and phone")
 
 
 if __name__ == "__main__":

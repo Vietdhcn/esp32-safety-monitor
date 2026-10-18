@@ -27,3 +27,25 @@ test('sample archive has no item cap, replaces a minute, filters ranges and isol
   assert.equal(await first.hasAny(), false);
   assert.equal((await second.range(0, Infinity)).length, 1);
 });
+
+test('sample history from older accounts moves into the shared device archive', async () => {
+  const data = new Map();
+  const localStorage = {
+    get length() { return data.size; }, key: index => [...data.keys()][index] ?? null,
+    getItem: key => data.get(key) ?? null,
+    setItem: (key, value) => data.set(key, value), removeItem: key => data.delete(key)
+  };
+  const options = { indexedDB: null, localStorage };
+  const owner = taoKhoMauLichSu('device:owner', options);
+  const operator = taoKhoMauLichSu('device:operator', options);
+  const shared = taoKhoMauLichSu('device:shared', options);
+  const at = 1_700_000_000_000;
+  await owner.save({ at, temperatureC: 25 });
+  await operator.save({ at: at + 60_000, temperatureC: 26 });
+  await shared.save({ at: at + 120_000, temperatureC: 27 });
+  assert.equal(typeof shared.migrateLegacy, 'function');
+  await shared.migrateLegacy('device:');
+  assert.deepEqual((await shared.range(at, at + 120_000)).map(sample => sample.temperatureC), [25, 26, 27]);
+  assert.equal(await owner.hasAny(), false);
+  assert.equal(await operator.hasAny(), false);
+});

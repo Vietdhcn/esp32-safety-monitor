@@ -51,6 +51,10 @@ test('history separates device events from buttons pressed by this user', () => 
   assert.deepEqual(locLichSu([press, system], 'system'), [system]);
   assert.deepEqual(locLichSu([press, system], 'all'), [press, system]);
   assert.match(lichSuThaoTac({ alarmLedMode: 'off' }, 1_700_000_005_500, 'failed').detail, /thất bại/);
+  assert.deepEqual(
+    (({ actorUid, actorEmail }) => ({ actorUid, actorEmail }))(
+      lichSuThaoTac({ fanOn: true }, 1_700_000_005_500, 'sent', { uid: 'operator-1', email: 'operator@example.com' })),
+    { actorUid: 'operator-1', actorEmail: 'operator@example.com' });
 });
 
 test('history deletion removes only the chosen source, including legacy system entries', () => {

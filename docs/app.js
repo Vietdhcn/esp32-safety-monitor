@@ -1,7 +1,8 @@
 import { firebaseConfig, deviceId, ownerUid } from './config.js?v=20261018-1';
 import { chuanHoaDuLieu, duLieuCu, thietBiNgoaiTuyen, laMoPhongNoiBo, taoDuLieuMoPhong, cacCheDo, luaChonMauDen, lenhDen, coTheDieuKhien, coTheTamTat, dangTamTat, tamTatTatCa, laLogicMoi, lenhHopLe, tienDoLenh, loiCauHinhWifi } from './dashboard-model.js?v=20261018-5';
-import { cacThayDoiLichSu, themLichSu, lichSuThaoTac, locLichSu, xoaLichSuTheoNguon, lamSachLichSuHeThongCu, mauDoLichSu, thongKeLichSu, duongBieuDo, nhomHoatDong } from './history-model.js?v=20261018-1';
-import { taoKhoMauLichSu } from './history-samples-store.js?v=20261018-1';
+import { cacThayDoiLichSu, themLichSu, lichSuThaoTac, locLichSu, xoaLichSuTheoNguon, lamSachLichSuHeThongCu, mauDoLichSu, thongKeLichSu, duongBieuDo, nhomHoatDong } from './history-model.js?v=20261018-2';
+import { taoKhoMauLichSu } from './history-samples-store.js?v=20261018-2';
+import { taiLichSuTheoThietBi } from './history-device-store.js?v=20261018-1';
 
 const $ = id => document.getElementById(id);
 const thongBaoCauHinh = $('setup-message');
@@ -32,6 +33,7 @@ let trangLichSu = 1;
 let phutMauCuoi = null;
 let coMauLichSu = false;
 let lanTaiBieuDo = 0;
+let taiKhoanLichSu = null;
 let duLieuTruoc = null;
 let boQuaLanDocDau = false;
 const ngoRaCheDo = { buzzerMode: 'buzzerOn' };
@@ -74,7 +76,7 @@ capNhatDongHo();
 setInterval(capNhatDongHo, 1000);
 
 function luuLichSu() {
-  try { localStorage.setItem(khoaLichSu, JSON.stringify({ version: 3, items: cacMucLichSu, previous: duLieuTruoc, cleared: cacMucLichSu.length === 0 })); }
+  try { localStorage.setItem(khoaLichSu, JSON.stringify({ version: 4, items: cacMucLichSu, previous: duLieuTruoc, cleared: cacMucLichSu.length === 0 })); }
   catch { $('history-status').textContent = 'Không thể lưu lịch sử trên trình duyệt này.'; }
 }
 
@@ -100,7 +102,7 @@ function hienThiLichSu() {
     title.textContent = entry.title;
     const sourceLabel = document.createElement('span');
     sourceLabel.className = `history-source-label history-source-label-${source}`;
-    sourceLabel.textContent = source === 'user' ? 'Bạn nhấn' : 'Hệ thống';
+    sourceLabel.textContent = source === 'user' ? 'Người dùng' : 'Hệ thống';
     heading.append(title, sourceLabel);
     const time = document.createElement('time');
     time.dateTime = new Date(entry.at).toISOString();
@@ -108,7 +110,9 @@ function hienThiLichSu() {
     content.append(heading);
     if (source === 'user') {
       const detail = document.createElement('p');
-      detail.textContent = entry.detail;
+      const actor = entry.actorEmail || (entry.actorUid ?
+        entry.actorUid === taiKhoanLichSu?.uid ? 'Tài khoản hiện tại' : 'Tài khoản khác' : '');
+      detail.textContent = actor ? `${actor} · ${entry.detail}` : entry.detail;
       content.append(detail);
     }
     item.append(marker, content, time);
@@ -119,7 +123,7 @@ function hienThiLichSu() {
   $('history-page-prev').disabled = trangLichSu <= 1;
   $('history-page-next').disabled = trangLichSu >= totalPages;
   datChu('history-page-label', `Trang ${trangLichSu} / ${totalPages}`);
-  $('history-empty').textContent = nguonLichSu === 'user' ? 'Chưa có thao tác nào của bạn.' :
+  $('history-empty').textContent = nguonLichSu === 'user' ? 'Chưa có thao tác nào của người dùng.' :
     nguonLichSu === 'system' ? 'Chưa có sự kiện hệ thống nào.' : 'Chưa có hoạt động nào được ghi lại.';
   $('clear-history-all').disabled = cacMucLichSu.length === 0 && !coMauLichSu;
   $('clear-history-system').disabled = locLichSu(cacMucLichSu, 'system').length === 0;
@@ -222,8 +226,16 @@ async function hienThiBangLichSu() {
 }
 
 function datPhamViLichSu(scope) {
-  khoaLichSu = `safety-history:${deviceId}:${scope}`;
-  khoMauLichSu = taoKhoMauLichSu(`${deviceId}:${scope}`);
+  const shared = scope !== 'demo' ? taiLichSuTheoThietBi(localStorage, deviceId) : null;
+  khoaLichSu = shared?.key || `safety-history:${deviceId}:demo`;
+  khoMauLichSu = taoKhoMauLichSu(`${deviceId}:${scope === 'demo' ? 'demo' : 'shared'}`);
+  const openedStore = khoMauLichSu;
+  if (shared) void khoMauLichSu.migrateLegacy(`${deviceId}:`).then(() => {
+    if (khoMauLichSu === openedStore && !$('history-view').hidden) void hienThiBangLichSu();
+  }).catch(() => {
+    if (khoMauLichSu === openedStore)
+      datChu('history-dashboard-status', 'Không chuyển được số đo từ lịch sử tài khoản cũ.');
+  });
   cacMucLichSu = [];
   nguonLichSu = 'all';
   trangLichSu = 1;
@@ -234,7 +246,7 @@ function datPhamViLichSu(scope) {
   boQuaLanDocDau = false;
   let lichSuCuCanChuyen = false;
   try {
-    const daLuu = JSON.parse(localStorage.getItem(khoaLichSu) || 'null');
+    const daLuu = shared ? shared.data : JSON.parse(localStorage.getItem(khoaLichSu) || 'null');
     if (Array.isArray(daLuu?.items)) cacMucLichSu = daLuu.items.filter(item =>
       Number.isFinite(item?.at) && item.at > 0 && item.at <= 8_640_000_000_000_000 &&
       typeof item.title === 'string' && typeof item.detail === 'string' &&
@@ -242,13 +254,13 @@ function datPhamViLichSu(scope) {
       .map(item => ({ ...item, source: item.source === 'user' ? 'user' : 'system' }));
     if (Array.isArray(daLuu?.items)) {
       const daLoc = lamSachLichSuHeThongCu(cacMucLichSu);
-      lichSuCuCanChuyen = daLuu.version !== 3 || daLoc.length !== cacMucLichSu.length;
+      lichSuCuCanChuyen = daLuu.version !== 4 || daLoc.length !== cacMucLichSu.length;
       cacMucLichSu = daLoc;
     }
     if (daLuu?.previous && typeof daLuu.previous === 'object') duLieuTruoc = daLuu.previous;
     boQuaLanDocDau = daLuu?.cleared === true;
   } catch { /* A damaged or unavailable local store starts with an empty history. */ }
-  $('history-status').textContent = '';
+  $('history-status').textContent = shared?.saved === false ? 'Không lưu được lịch sử đã gộp trên trình duyệt này.' : '';
   hienThiLichSu();
   void hienThiBangLichSu();
   if (lichSuCuCanChuyen) luuLichSu();
@@ -290,7 +302,7 @@ function ghiDuLieu() {
 
 function ghiThaoTac(values, outcome) {
   if (!khoaLichSu) return;
-  const entry = lichSuThaoTac(values, Date.now(), outcome);
+  const entry = lichSuThaoTac(values, Date.now(), outcome, taiKhoanLichSu);
   if (!entry) return;
   cacMucLichSu = themLichSu(cacMucLichSu, [entry]);
   $('history-status').textContent = '';
@@ -299,7 +311,7 @@ function ghiThaoTac(values, outcome) {
   if (!$('history-view').hidden) void hienThiBangLichSu();
 }
 
-for (const [source, label] of [['system', 'hệ thống'], ['user', 'bạn đã nhấn'], ['all', 'toàn bộ']]) {
+for (const [source, label] of [['system', 'hệ thống'], ['user', 'thao tác người dùng'], ['all', 'toàn bộ']]) {
   $('clear-history-' + source).addEventListener('click', () => {
     if ((!locLichSu(cacMucLichSu, source).length && !(source === 'all' && coMauLichSu)) ||
       !window.confirm(source === 'all' ? 'Xóa toàn bộ sự kiện, thao tác và số đo đã lưu trên trình duyệt này?' :
@@ -647,6 +659,7 @@ if (cheDoMoPhong) {
 
   onAuthStateChanged(auth, user => {
     const daDangNhap = Boolean(user);
+    taiKhoanLichSu = user ? { uid: user.uid, email: user.email || null } : null;
     chuSoHuuDangNhap = daDangNhap && user.uid === ownerUid;
     wifiDangCho = null;
     thongBaoWifi = '';
