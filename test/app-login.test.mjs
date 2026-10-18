@@ -15,6 +15,7 @@ test('authenticated controls send atomic commands and await device acknowledgeme
     assert.ok(positions.every((position, index) => index === 0 || positions[index - 1] < position), `${ids.join(', ')} must appear in visual order`);
   }
   assert.doesNotMatch(html, /id="fan-(?:30|60|90|100)"/);
+  assert.match(html, /id="operator-list"/, 'the owner needs a list of granted accounts');
   const originals = new Map(['document', 'window', 'localStorage', 'setInterval', '__firebaseLoginTest']
     .map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   t.after(() => {
@@ -41,24 +42,49 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   const state = globalThis.__firebaseLoginTest = {};
   const moduleUrl = code => `data:text/javascript,${encodeURIComponent(code)}`;
   const sdk = {
-    'firebase-app': 'export const initializeApp = () => ({});',
-    'firebase-auth': `export const getAuth = () => ({});
+    'firebase-app': 'export const initializeApp = (_, name = "[DEFAULT]") => ({ name });',
+    'firebase-auth': `export const getAuth = app => { const s = globalThis.__firebaseLoginTest;
+        return app.name === '[DEFAULT]' ? (s.mainAuth ??= { currentUser: null }) : (s.secondaryAuth ??= { currentUser: null }); };
       export const browserLocalPersistence = 'local';
       export const browserSessionPersistence = 'session';
+      export const inMemoryPersistence = 'memory';
       export const setPersistence = async (_, value) => { globalThis.__firebaseLoginTest.authCalls.push(['persistence', value]); };
-      export const onAuthStateChanged = (_, callback) => { globalThis.__firebaseLoginTest.authChanged = callback; };
+      export const onAuthStateChanged = (auth, callback) => { globalThis.__firebaseLoginTest.authChanged = user => {
+        auth.currentUser = user; callback(user); }; };
       export const signInWithEmailAndPassword = async (_, email, password) => {
         globalThis.__firebaseLoginTest.authCalls.push(['signIn', email, password]);
       };
-      export const signOut = async () => {};`,
+      export const createUserWithEmailAndPassword = async (auth, email, password) => { const s = globalThis.__firebaseLoginTest;
+        if (s.createError) throw s.createError;
+        const user = { uid: 'created-operator', email }; auth.currentUser = user;
+        s.created = { auth, email, password }; return { user }; };
+      export const deleteUser = async user => { globalThis.__firebaseLoginTest.deletedUser = user; };
+      export const signOut = async auth => { auth.currentUser = null; globalThis.__firebaseLoginTest.signedOut = auth; };
+      export const EmailAuthProvider = { credential: (email, password) => ({ email, password }) };
+      export const reauthenticateWithCredential = async (user, credential) => {
+        const s = globalThis.__firebaseLoginTest; s.reauth = { user, credential };
+        if (s.reauthError) throw s.reauthError; };
+      export const updatePassword = async (user, password) => {
+        globalThis.__firebaseLoginTest.passwordUpdate = { user, password }; };`,
     'firebase-database': `export const getDatabase = () => ({});
       export const ref = (_, path) => ({ path });
-      export const onValue = (reference, callback) => { const s = globalThis.__firebaseLoginTest;
-        s.path = reference.path; s.reading = callback; return () => {}; };
+      export const onValue = (reference, callback, onError) => { const s = globalThis.__firebaseLoginTest;
+        (s.readings ??= new Map()).set(reference.path, callback);
+        (s.errors ??= new Map()).set(reference.path, onError);
+        if (reference.path?.endsWith('/telemetry')) { s.path = reference.path; s.reading = callback; }
+        return () => { s.readings.delete(reference.path); s.errors.delete(reference.path); }; };
       export const serverTimestamp = () => ({ '.sv': 'timestamp' });
       export const update = async (reference, values) => { const state = globalThis.__firebaseLoginTest;
-        state.write = { path: reference.path, values }; if (state.blockWrite) await state.blockWrite; };
-      export const set = async () => {};`
+        state.write = { path: reference.path, values };
+        if (state.blockWrite) await state.blockWrite; };
+      export const set = async (reference, value) => { const s = globalThis.__firebaseLoginTest;
+        if (reference.path?.startsWith('operatorProfiles/')) {
+          s.profile = { path: reference.path, value };
+          if (s.profileError) throw s.profileError;
+        } else {
+          s.grant = { path: reference.path, value };
+          if (s.grantError) throw s.grantError;
+        } };`
   };
   let source = await readFile(new URL('../docs/app.js', import.meta.url), 'utf8');
   for (const name of ['config', 'dashboard-model', 'history-model']) {
@@ -69,6 +95,8 @@ test('authenticated controls send atomic commands and await device acknowledgeme
     source = source.replace(`'https://www.gstatic.com/firebasejs/13.0.0/${name}.js'`, JSON.stringify(moduleUrl(code)));
   }
   await import(moduleUrl(source));
+  for (const id of ['current-password', 'new-password', 'confirm-password',
+    'account-email', 'account-password', 'account-confirm']) document.getElementById(id);
   state.authCalls = [];
   document.getElementById('email').value = 'owner@example.com';
   document.getElementById('password').value = 'secret-for-test';
@@ -320,4 +348,180 @@ test('authenticated controls send atomic commands and await device acknowledgeme
       `fan ${choice} must preserve the pending buzzer choice`);
     assert.equal(nodes.get('buzzerMode-state').textContent, 'Chờ tắt');
   }
+
+  state.authChanged({ uid: 'operator', email: 'operator@example.com' });
+  assert.equal(nodes.get('tab-account').hidden, false);
+  assert.equal(nodes.get('operator-management-section').hidden, true);
+  assert.equal(nodes.get('wifi-settings-section').hidden, true,
+    'operators must not see Wi-Fi credentials');
+  nodes.get('wifi-ssid').value = 'New network';
+  nodes.get('wifi-password').value = 'new-password';
+  await nodes.get('wifi-settings-form').listeners.submit({ preventDefault() {} });
+  assert.notEqual(state.grant?.path, 'devices/esp32s-30p-01/commands/wifi',
+    'operators cannot submit a hidden Wi-Fi form');
+  assert.equal(nodes.get('create-account-section').hidden, true,
+    'an operator cannot create another account');
+  nodes.get('account-email').value = 'unauthorized@example.com';
+  nodes.get('account-password').value = 'temporary-123';
+  nodes.get('account-confirm').value = 'temporary-123';
+  await nodes.get('create-account-form').listeners.submit({ preventDefault() {} });
+  assert.equal(state.created, undefined, 'an operator cannot invoke account creation through a hidden form');
+  nodes.get('tab-account').listeners.click();
+  assert.equal(nodes.get('account-view').hidden, false);
+  nodes.get('current-password').value = 'old-password';
+  nodes.get('new-password').value = 'new-password-123';
+  nodes.get('confirm-password').value = 'different';
+  await nodes.get('change-password-form').listeners.submit({ preventDefault() {} });
+  assert.equal(state.reauth, undefined, 'mismatched confirmation must not call Firebase');
+  nodes.get('current-password').value = 'old-password';
+  nodes.get('new-password').value = 'new-password-123';
+  nodes.get('confirm-password').value = 'new-password-123';
+  await nodes.get('change-password-form').listeners.submit({ preventDefault() {} });
+  assert.deepEqual(state.reauth.credential, { email: 'operator@example.com', password: 'old-password' });
+  assert.deepEqual(state.passwordUpdate, { user: state.mainAuth.currentUser, password: 'new-password-123' });
+  assert.equal(nodes.get('current-password').value, '');
+  assert.equal(nodes.get('new-password').value, '');
+  assert.match(nodes.get('change-password-status').textContent, /đã đổi/i);
+  state.reauthError = { code: 'auth/wrong-password' };
+  state.passwordUpdate = undefined;
+  nodes.get('current-password').value = 'incorrect';
+  nodes.get('new-password').value = 'another-password-123';
+  nodes.get('confirm-password').value = 'another-password-123';
+  await nodes.get('change-password-form').listeners.submit({ preventDefault() {} });
+  assert.equal(state.passwordUpdate, undefined, 'wrong current password must not update Firebase');
+  assert.match(nodes.get('change-password-status').textContent, /không đúng/i);
+  assert.equal(nodes.get('current-password').value, '');
+  delete state.reauthError;
+
+  nodes.get('show-change-passwords').checked = true;
+  nodes.get('show-change-passwords').listeners.change();
+  assert.equal(nodes.get('new-password').type, 'text');
+  nodes.get('show-change-passwords').checked = false;
+  nodes.get('show-change-passwords').listeners.change();
+  assert.equal(nodes.get('new-password').type, 'password');
+
+  state.authChanged({ uid: 'NK23PFt0RAe14EKVUiFFNjDXMsv2', email: 'owner@example.com' });
+  assert.equal(nodes.get('operator-management-section').hidden, false);
+  assert.ok(state.readings.has('operators'), 'owner can subscribe to granted operator UIDs');
+  assert.ok(state.readings.has('operatorProfiles'), 'owner can subscribe to saved operator emails');
+  state.readings.get('operators')({ val: () => ({ 'old-uid': true, 'created-operator': true }) });
+  assert.equal(nodes.get('operator-list').children.length, 2,
+    'granted accounts appear even before email profiles load');
+  state.errors.get('operatorProfiles')({ code: 'PERMISSION_DENIED' });
+  assert.equal(nodes.get('operator-list').children.length, 2,
+    'a denied profile read must not hide granted accounts');
+  assert.equal(nodes.get('operator-count').textContent, '2');
+  assert.match(nodes.get('operator-list-status').textContent, /email.*UID/i);
+  state.readings.get('operatorProfiles')({ val: () => ({ 'created-operator': { email: 'new@example.com' } }) });
+  assert.equal(nodes.get('operator-list').children.length, 2);
+  assert.ok(nodes.get('operator-list').children.some(row => row.children.some(child =>
+    child.textContent === 'new@example.com')), 'new accounts show their email');
+  assert.ok(nodes.get('operator-list').children.some(row => row.children.some(child =>
+    child.textContent?.includes('old-uid'))), 'older accounts fall back to UID');
+  assert.equal(nodes.get('wifi-settings-section').hidden, false);
+  state.reading({ val: () => ({ ...safe, wifiConfigVersion: 1, wifiSsid: 'Old network', updatedAt: Date.now() }) });
+  assert.equal(nodes.get('wifi-current-ssid').textContent, 'Old network');
+  nodes.get('show-wifi-password').checked = true;
+  nodes.get('show-wifi-password').listeners.change();
+  assert.equal(nodes.get('wifi-password').type, 'text');
+  nodes.get('show-wifi-password').checked = false;
+  nodes.get('show-wifi-password').listeners.change();
+  assert.equal(nodes.get('wifi-password').type, 'password');
+  nodes.get('wifi-ssid').value = 'New network';
+  nodes.get('wifi-password').value = 'new-password';
+  await nodes.get('wifi-settings-form').listeners.submit({ preventDefault() {} });
+  assert.equal(state.grant.path, 'devices/esp32s-30p-01/commands/wifi');
+  assert.equal(state.grant.value.ssid, 'New network');
+  assert.equal(state.grant.value.password, 'new-password');
+  assert.ok(state.grant.value.requestId);
+  assert.equal(nodes.get('wifi-password').value, '', 'browser clears the entered password after sending');
+  assert.equal([...storage.values()].some(value => value.includes('new-password')), false);
+  const wifiRequestId = state.grant.value.requestId;
+  state.reading({ val: () => ({ ...safe, wifiConfigVersion: 1, wifiSsid: 'New network',
+    wifiChangeId: wifiRequestId, wifiChangeStatus: 'applied', updatedAt: Date.now() }) });
+  assert.match(nodes.get('wifi-settings-status').textContent, /đã kết nối/i);
+  nodes.get('wifi-ssid').value = 'Another network';
+  nodes.get('wifi-password').value = 'short';
+  await nodes.get('wifi-settings-form').listeners.submit({ preventDefault() {} });
+  assert.equal(nodes.get('wifi-settings-status').dataset.error, 'true',
+    'invalid Wi-Fi credentials must have a visible error state');
+  assert.equal(state.grant.value.requestId, wifiRequestId);
+  state.reading({ val: () => ({ ...safe, updatedAt: Date.now() }) });
+  assert.equal(nodes.get('wifi-settings-button').disabled, true,
+    'the web must not send Wi-Fi requests to firmware without provisioning support');
+  assert.equal(nodes.get('create-account-section').hidden, false,
+    'only the owner sees account creation');
+  nodes.get('account-email').value = 'new@example.com';
+  nodes.get('account-password').value = 'temporary-123';
+  nodes.get('account-confirm').value = 'temporary-123';
+  await nodes.get('create-account-form').listeners.submit({ preventDefault() {} });
+  assert.equal(state.created.auth, state.secondaryAuth,
+    'creating an operator must use a separate Firebase auth session');
+  assert.equal(state.mainAuth.currentUser.uid, 'NK23PFt0RAe14EKVUiFFNjDXMsv2',
+    'the owner remains signed in');
+  assert.deepEqual(state.grant, { path: 'operators/created-operator', value: true });
+  assert.deepEqual(state.profile, { path: 'operatorProfiles/created-operator',
+    value: { email: 'new@example.com', createdAt: { '.sv': 'timestamp' } } });
+  assert.equal(state.signedOut, state.secondaryAuth);
+  assert.match(nodes.get('create-account-status').textContent, /đã tạo/i);
+  assert.equal(nodes.get('account-password').value, '');
+  assert.equal([...storage.values()].some(value => value.includes('temporary-123')), false);
+
+  state.profileError = new Error('permission_denied');
+  nodes.get('account-email').value = 'without-profile@example.com';
+  nodes.get('account-password').value = 'temporary-789';
+  nodes.get('account-confirm').value = 'temporary-789';
+  await nodes.get('create-account-form').listeners.submit({ preventDefault() {} });
+  assert.equal(state.deletedUser, undefined,
+    'an account with granted access survives an optional profile write failure');
+  assert.match(nodes.get('create-account-status').textContent, /đã tạo.*email chưa lưu/i);
+  delete state.profileError;
+
+  state.grantError = new Error('permission_denied');
+  nodes.get('account-email').value = 'another@example.com';
+  nodes.get('account-password').value = 'temporary-456';
+  nodes.get('account-confirm').value = 'temporary-456';
+  await nodes.get('create-account-form').listeners.submit({ preventDefault() {} });
+  assert.equal(state.deletedUser?.uid, 'created-operator',
+    'a newly created account is rolled back when permission cannot be granted');
+  assert.match(nodes.get('create-account-status').textContent, /không.*quyền/i);
+  delete state.grantError;
+
+  state.readings.get('operators')({ val: () => ({ 'old-uid': true, 'created-operator': true }) });
+  state.readings.get('operatorProfiles')({ val: () => ({ 'created-operator': { email: 'new@example.com' } }) });
+  const newAccountRow = nodes.get('operator-list').children.find(row => row.children.some(child =>
+    child.textContent === 'new@example.com'));
+  const revokeButton = newAccountRow.children.find(child => child.listeners.click);
+  await revokeButton.listeners.click();
+  assert.deepEqual(state.grant, { path: 'operators/created-operator', value: false });
+  state.readings.get('operators')({ val: () => ({ 'old-uid': true, 'created-operator': false }) });
+  const revokedRow = nodes.get('operator-list').children.find(row => row.children.some(child =>
+    child.textContent === 'new@example.com'));
+  const restoreButton = revokedRow.children.find(child => child.listeners.click);
+  await restoreButton.listeners.click();
+  assert.deepEqual(state.grant, { path: 'operators/created-operator', value: true });
+
+  state.errors.get('operators')({ code: 'PERMISSION_DENIED' });
+  assert.equal(nodes.get('operator-count').textContent, '—',
+    'failed permission reads must not claim there are zero accounts');
+  assert.match(nodes.get('operator-list-status').textContent, /danh sách quyền/i);
+
+  state.authChanged({ uid: 'operator', email: 'operator@example.com' });
+  assert.equal(nodes.get('operator-management-section').hidden, true);
+  assert.equal(state.readings.has('operators'), false, 'operator list listener is detached when owner leaves');
+  const ownerWrite = state.grant;
+  await restoreButton.listeners.click();
+  assert.deepEqual(state.grant, ownerWrite, 'a stale owner button cannot change rights after account switch');
+
+  nodes.get('account-password').value = 'unsent-owner-password';
+  nodes.get('account-confirm').value = 'unsent-owner-password';
+  nodes.get('current-password').value = 'unsent-current-password';
+  nodes.get('new-password').value = 'unsent-new-password';
+  nodes.get('confirm-password').value = 'unsent-new-password';
+  state.authChanged(null);
+  for (const id of ['account-password', 'account-confirm', 'current-password',
+    'new-password', 'confirm-password']) {
+    assert.equal(nodes.get(id).value, '', `${id} must be cleared when signing out`);
+  }
+  assert.equal(nodes.get('tab-account').hidden, true);
 });

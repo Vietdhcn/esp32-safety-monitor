@@ -2,6 +2,7 @@
 #include "../firmware/AnToanESP32/SafetyLogic.h"
 #include "../firmware/AnToanESP32/DhtSample.h"
 #include "../firmware/AnToanESP32/TelemetryTiming.h"
+#include "../firmware/AnToanESP32/WifiCredentials.h"
 
 #include <cstdio>
 #include <cstring>
@@ -34,6 +35,19 @@ static_assert(!telemetrySendDue(8, 7, 1300, 1000, true, 1000),
               "Failed requests should back off");
 static_assert(telemetrySendDue(8, 7, 1500, 1000, true, 1000, true),
               "An alarm request should retry after 500 ms");
+static_assert(wifiCredentialsValid("New network", "password123"),
+              "A valid WPA network can be saved for the next boot");
+static_assert(!wifiCredentialsValid("", "password123"), "An empty SSID must be rejected");
+static_assert(!wifiCredentialsValid("New network", "short"), "A short WPA password must be rejected");
+static_assert(!wifiCredentialsValid("New network", "1234567890123456789012345678901234567890123456789012345678901234"),
+              "A password above 63 bytes must be rejected");
+static_assert(wifiCleanupDue(true, 100, 0), "An unfinished credential cleanup should run immediately");
+static_assert(!wifiCleanupDue(true, 1000, 500), "Failed cleanup should not flood Firebase");
+static_assert(wifiCleanupDue(true, 30500, 500), "Failed cleanup should retry after 30 seconds");
+static_assert(!wifiCleanupDue(false, 30500, 500), "Completed cleanup should not retry");
+static_assert(wifiCleanupMatches("request-1", "request-1"), "A processed request can be cleared");
+static_assert(!wifiCleanupMatches("request-2", "request-1"),
+              "Cleanup must preserve a newer Wi-Fi request from another browser");
 
 static int failures = 0;
 #define CHECK(cond) do { if (!(cond)) { std::printf("FAIL line %d: %s\n", __LINE__, #cond); ++failures; } } while (0)

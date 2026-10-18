@@ -10,8 +10,8 @@
   <title>Trạm giám sát an toàn</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231a1a1a'/%3E%3Cpath d='M16 6c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 2-5 3-6 0 2 1 3 2 3 0-3 0-6 1-9z' fill='%23fff'/%3E%3C/svg%3E">
   <script src="./theme.js?v=20261016-30"></script>
-  <link rel="stylesheet" href="./styles.css?v=20261018-2">
-  <script type="module" src="./app.js?v=20261018-2"></script>
+  <link rel="stylesheet" href="./styles.css?v=20261018-5">
+  <script type="module" src="./app.js?v=20261018-5"></script>
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -95,6 +95,7 @@
         <div id="dashboard-tabs" class="pivot" role="tablist" aria-label="Khu vực bảng điều khiển">
           <button id="tab-overview" class="pivot-item" type="button" role="tab" aria-controls="overview-view" aria-selected="true" tabindex="0">Tổng quan</button>
           <button id="tab-history" class="pivot-item" type="button" role="tab" aria-controls="history-view" aria-selected="false" tabindex="-1">Lịch sử <span id="history-count" class="count">0</span></button>
+          <button id="tab-account" class="pivot-item" type="button" role="tab" aria-controls="account-view" aria-selected="false" tabindex="-1" hidden>Tài khoản</button>
         </div>
 
         <div id="overview-view" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
@@ -155,6 +156,54 @@
           <div class="card history-card" role="region" aria-label="Danh sách lịch sử hoạt động" tabindex="0">
             <ol id="history-list" class="history-list" aria-live="polite"></ol>
             <p id="history-empty" class="history-empty subtle">Chưa có hoạt động nào được ghi lại.</p>
+          </div>
+        </section>
+
+        <section id="account-view" class="account-view" role="tabpanel" aria-labelledby="tab-account" tabindex="0" hidden>
+          <h2 class="section-title">Tài khoản</h2>
+          <div class="account-grid">
+            <article id="create-account-section" class="account-card card" hidden>
+              <h3>Thêm tài khoản</h3>
+              <p class="subtle">Chủ sở hữu tạo tài khoản operator để xem và điều khiển thiết bị. Hãy chuyển mật khẩu tạm cho người dùng theo kênh riêng.</p>
+              <form id="create-account-form">
+                <label for="account-email">Email mới</label><input id="account-email" type="email" autocomplete="off" required>
+                <label for="account-password">Mật khẩu tạm</label><input id="account-password" type="password" autocomplete="new-password" minlength="8" required>
+                <label for="account-confirm">Nhập lại mật khẩu tạm</label><input id="account-confirm" type="password" autocomplete="new-password" minlength="8" required>
+                <label class="check" for="show-account-passwords"><input id="show-account-passwords" type="checkbox">Hiện mật khẩu</label>
+                <button id="create-account-button" class="button button-accent" type="submit">Tạo tài khoản</button>
+                <p id="create-account-status" class="form-status" role="status" aria-live="polite"></p>
+              </form>
+            </article>
+            <article class="account-card card">
+              <h3>Đổi mật khẩu</h3>
+              <p class="subtle">Đổi mật khẩu của <strong id="account-current-email">tài khoản đang đăng nhập</strong>. Bạn cần nhập mật khẩu hiện tại để xác nhận.</p>
+              <form id="change-password-form">
+                <label for="current-password">Mật khẩu hiện tại</label><input id="current-password" type="password" autocomplete="current-password" required>
+                <label for="new-password">Mật khẩu mới</label><input id="new-password" type="password" autocomplete="new-password" minlength="8" required>
+                <label for="confirm-password">Nhập lại mật khẩu mới</label><input id="confirm-password" type="password" autocomplete="new-password" minlength="8" required>
+                <label class="check" for="show-change-passwords"><input id="show-change-passwords" type="checkbox">Hiện mật khẩu</label>
+                <button id="change-password-button" class="button button-accent" type="submit">Đổi mật khẩu</button>
+                <p id="change-password-status" class="form-status" role="status" aria-live="polite"></p>
+              </form>
+            </article>
+            <article id="wifi-settings-section" class="account-card card" hidden>
+              <h3>Đổi Wi-Fi cho ESP32</h3>
+              <p class="subtle">Mạng hiện tại: <strong id="wifi-current-ssid">Chưa có dữ liệu</strong>. Chọn mạng 2,4 GHz; ESP32 sẽ thử kết nối và tự quay về mạng cũ nếu thất bại.</p>
+              <form id="wifi-settings-form" autocomplete="off">
+                <label for="wifi-ssid">Tên Wi-Fi mới (SSID)</label><input id="wifi-ssid" type="text" maxlength="32" autocomplete="off" spellcheck="false" required>
+                <label for="wifi-password">Mật khẩu Wi-Fi mới</label><input id="wifi-password" type="password" autocomplete="new-password" minlength="8" maxlength="63" required>
+                <label class="check" for="show-wifi-password"><input id="show-wifi-password" type="checkbox">Hiện mật khẩu Wi-Fi</label>
+                <button id="wifi-settings-button" class="button button-accent" type="submit" disabled>Chuyển Wi-Fi</button>
+                <p id="wifi-settings-status" class="form-status" role="status" aria-live="polite"></p>
+              </form>
+            </article>
+            <article id="operator-management-section" class="account-card operator-card card" hidden>
+              <h3>Tài khoản đã cấp quyền <span id="operator-count" class="count">…</span></h3>
+              <p class="subtle">Thu hồi quyền sẽ chặn truy cập thiết bị; tài khoản đăng nhập vẫn tồn tại và có thể được cấp lại quyền.</p>
+              <p id="operator-list-status" class="subtle" role="status" aria-live="polite">Đang tải tài khoản…</p>
+              <ul id="operator-list" class="operator-list" aria-label="Danh sách tài khoản operator"></ul>
+              <p id="operator-action-status" class="form-status" role="status" aria-live="polite"></p>
+            </article>
           </div>
         </section>
       </div>

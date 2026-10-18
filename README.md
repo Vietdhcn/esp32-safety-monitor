@@ -57,7 +57,15 @@ GPIO ESP32 chỉ nhận tín hiệu mức 3,3 V. Nếu DO của MQ-2 hoặc S/DO
 4. Sao chép `firmware/AnToanESP32/secrets.example.h` thành `firmware/AnToanESP32/secrets.h`. Điền `WIFI_SSID`, `WIFI_PASSWORD`, `FIREBASE_API_KEY`, `FIREBASE_DATABASE_URL`, `DEVICE_EMAIL`, `DEVICE_PASSWORD` của tài khoản thiết bị.
 5. Nếu dùng Firebase project mới, cập nhật Web config ở `docs/config.js`. ID thiết bị trong `docs/config.js`, hằng `DEVICE_ID` trong `.ino` và nhánh `devices/<deviceId>` của Rules phải trùng nhau. ID hiện tại là `esp32s-30p-01`.
 
-Không đưa mật khẩu vào `docs/` hoặc commit `secrets.h`. `docs/config.js` là cấu hình web công khai; quyền đọc/ghi do Authentication và Database Rules quyết định.
+Sau khi đăng nhập, mở tab **Tài khoản**. Chủ sở hữu có thể tạo tài khoản operator bằng email và mật khẩu tạm; web cấp quyền tại `operators/<uid>` theo Database Rules hiện có mà không đổi phiên đăng nhập của chủ sở hữu. Mọi tài khoản đăng nhập bằng Email/Password có thể đổi mật khẩu của chính mình sau khi xác nhận mật khẩu hiện tại. Với Firebase project mới, `ownerUid` trong `docs/config.js` phải trùng UID chủ sở hữu trong Database Rules. Chỉ UID chủ sở hữu được Rules cho phép cấp quyền operator; việc ẩn form trên web không phải là cơ chế phân quyền.
+
+Mục **Tài khoản đã cấp quyền** cho chủ sở hữu xem trạng thái và thu hồi hoặc cấp lại quyền từng operator. Áp dụng `firebase.rules.json` mới trong Firebase Console trước khi dùng danh sách này; quyền đọc toàn bộ danh sách chỉ dành cho chủ sở hữu. Tài khoản được tạo từ phiên bản này lưu email ở `operatorProfiles/<uid>`; tài khoản cũ chỉ hiện UID. Thu hồi quyền không xóa tài khoản Firebase Authentication, nhưng chặn quyền đọc dữ liệu và điều khiển thiết bị theo Database Rules.
+
+Chủ sở hữu cũng có thể đổi Wi-Fi ESP32 trong tab **Tài khoản** sau khi nạp phiên bản firmware này **một lần** và áp dụng Database Rules mới. ESP32 phải còn trực tuyến trên mạng cũ để nhận yêu cầu. Nhập SSID của mạng 2,4 GHz và mật khẩu WPA dài 8–63 ký tự ASCII; thiết bị thử kết nối Firebase bằng mạng mới, chỉ lưu vào NVS khi thành công và tự quay về mạng cũ khi thất bại. Những lần đổi Wi-Fi sau không cần nạp firmware. Web không lưu mật khẩu Wi-Fi trong trình duyệt; yêu cầu được gửi qua Firebase cho riêng chủ sở hữu và thiết bị, rồi firmware xóa sau khi xử lý. Không đổi Wi-Fi nếu mạng cũ sắp bị tắt trước khi ESP32 xác nhận mạng mới.
+
+Firebase Authentication vẫn cho phép đăng ký tài khoản qua API khi Email/Password signup được bật. Tài khoản tự đăng ký không có quyền xem hoặc điều khiển thiết bị nếu chưa được chủ sở hữu cấp trong `operators/<uid>`. Nếu cần chặn hoàn toàn việc tự đăng ký tài khoản, phải chuyển thao tác tạo tài khoản sang dịch vụ quản trị phía máy chủ.
+
+Không đưa mật khẩu vào `docs/` hoặc commit `secrets.h`. `docs/config.js` là cấu hình web công khai; quyền đọc/ghi do Authentication và Database Rules quyết định. Mật khẩu Wi-Fi mới được lưu tạm trong nhánh `commands/wifi` của Realtime Database trong lúc chờ thiết bị xử lý; giới hạn quyền đọc nhánh này ở chủ sở hữu và thiết bị.
 
 ## Biên dịch và nạp firmware
 

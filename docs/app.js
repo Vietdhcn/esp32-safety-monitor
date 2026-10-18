@@ -1,5 +1,5 @@
-import { firebaseConfig, deviceId } from './config.js';
-import { chuanHoaDuLieu, duLieuCu, thietBiNgoaiTuyen, laMoPhongNoiBo, taoDuLieuMoPhong, cacCheDo, luaChonMauDen, lenhDen, coTheDieuKhien, coTheTamTat, dangTamTat, tamTatTatCa, laLogicMoi, lenhHopLe, tienDoLenh } from './dashboard-model.js?v=20261017-2';
+import { firebaseConfig, deviceId, ownerUid } from './config.js';
+import { chuanHoaDuLieu, duLieuCu, thietBiNgoaiTuyen, laMoPhongNoiBo, taoDuLieuMoPhong, cacCheDo, luaChonMauDen, lenhDen, coTheDieuKhien, coTheTamTat, dangTamTat, tamTatTatCa, laLogicMoi, lenhHopLe, tienDoLenh, loiCauHinhWifi } from './dashboard-model.js?v=20261018-4';
 import { cacThayDoiLichSu, themLichSu, lichSuThaoTac, locLichSu, xoaLichSuTheoNguon, lamSachLichSuHeThongCu } from './history-model.js?v=20261017-1';
 
 const $ = id => document.getElementById(id);
@@ -16,6 +16,10 @@ let lenhDangCho = null;
 let luaChonQuat = 'auto';
 let dangGuiLenh = false;
 let thongBaoLenh = '';
+let chuSoHuuDangNhap = false;
+let wifiDangCho = null;
+let thongBaoWifi = '';
+let loiWifi = false;
 let guiLenh = async () => {};
 let khoaLichSu = '';
 let cacMucLichSu = [];
@@ -23,7 +27,7 @@ let nguonLichSu = 'all';
 let duLieuTruoc = null;
 let boQuaLanDocDau = false;
 const ngoRaCheDo = { buzzerMode: 'buzzerOn' };
-const tenCacTab = ['overview', 'history'];
+const tenCacTab = ['overview', 'history', 'account'];
 
 function chonTab(name, focus = false) {
   for (const tabName of tenCacTab) {
@@ -43,9 +47,10 @@ for (const name of tenCacTab) {
   tab.addEventListener('keydown', event => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
-    const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? tenCacTab.length - 1 :
-      (tenCacTab.indexOf(name) + (event.key === 'ArrowLeft' ? -1 : 1) + tenCacTab.length) % tenCacTab.length;
-    const next = tenCacTab[nextIndex];
+    const tabs = tenCacTab.filter(tabName => !$(`tab-${tabName}`).hidden);
+    const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 :
+      (tabs.indexOf(name) + (event.key === 'ArrowLeft' ? -1 : 1) + tabs.length) % tabs.length;
+    const next = tabs[nextIndex];
     chonTab(next, true);
   });
 }
@@ -193,6 +198,30 @@ function hienSoDo(id, value, suffix = '') {
   datChu(id, value == null ? '—' : `${value}${suffix}`);
 }
 
+function hienThiWifi() {
+  if (wifiDangCho && duLieuThietBi.wifiChangeId === wifiDangCho.id &&
+      ['applied', 'failed'].includes(duLieuThietBi.wifiChangeStatus)) {
+    loiWifi = duLieuThietBi.wifiChangeStatus === 'failed';
+    thongBaoWifi = duLieuThietBi.wifiChangeStatus === 'applied' ?
+      'ESP32 đã kết nối Wi-Fi mới và lưu cấu hình.' : 'Không kết nối được mạng mới; ESP32 đã quay về mạng cũ.';
+    wifiDangCho = null;
+  }
+  if (wifiDangCho && Date.now() - wifiDangCho.sentAt > 90_000) {
+    wifiDangCho = null;
+    loiWifi = true;
+    thongBaoWifi = 'Chưa nhận được xác nhận. Kiểm tra kết nối của ESP32 trước khi thử lại.';
+  }
+  datChu('wifi-current-ssid', duLieuThietBi.wifiSsid || 'Chưa có dữ liệu');
+  $('wifi-settings-button').disabled = !chuSoHuuDangNhap || duLieuThietBi.wifiConfigVersion !== 1 ||
+    duLieuCu(duLieuThietBi.updatedAt) || Boolean(wifiDangCho);
+  const canNapFirmware = duLieuThietBi.wifiConfigVersion !== 1;
+  const message = wifiDangCho ? 'Đang chờ ESP32 thử Wi-Fi mới và xác nhận…' : thongBaoWifi ||
+    (canNapFirmware ? 'Cần nạp firmware hỗ trợ đổi Wi-Fi một lần.' :
+      duLieuCu(duLieuThietBi.updatedAt) ? 'ESP32 cần trực tuyến để nhận cấu hình mới.' : '');
+  datChu('wifi-settings-status', message);
+  $('wifi-settings-status').dataset.error = String(!wifiDangCho && (loiWifi || canNapFirmware));
+}
+
 function hienThi() {
   const tienDo = tienDoLenh(lenhDangCho, duLieuThietBi);
   if (tienDo === 'applied') { thongBaoLenh = 'ESP32 đã áp dụng lệnh.'; lenhDangCho = null; }
@@ -228,6 +257,7 @@ function hienThi() {
   $('gas-alarm-value').closest('.metric-card').classList.toggle('alert', !duLieuQuaCu && duLieuThietBi.gasAlarm === true);
 
   hienThiDieuKhien(duLieuQuaCu, coCanhBao);
+  hienThiWifi();
 }
 
 function moTaQuat(duLieu) {
@@ -350,9 +380,11 @@ if (cheDoMoPhong) {
   thongBaoCauHinh.hidden = false;
 } else {
   $('demo-link').hidden = !xemTruocNoiBo;
-  const [{ initializeApp }, { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut,
-    setPersistence, browserLocalPersistence, browserSessionPersistence },
-    { getDatabase, ref, onValue, update, serverTimestamp }] = await Promise.all([
+  const [{ initializeApp }, { getAuth, onAuthStateChanged, signInWithEmailAndPassword,
+    createUserWithEmailAndPassword, deleteUser, signOut, EmailAuthProvider,
+    reauthenticateWithCredential, updatePassword, setPersistence,
+    browserLocalPersistence, browserSessionPersistence, inMemoryPersistence },
+    { getDatabase, ref, onValue, update, set, serverTimestamp }] = await Promise.all([
     import('https://www.gstatic.com/firebasejs/13.0.0/firebase-app.js'),
     import('https://www.gstatic.com/firebasejs/13.0.0/firebase-auth.js'),
     import('https://www.gstatic.com/firebasejs/13.0.0/firebase-database.js')
@@ -364,6 +396,13 @@ if (cheDoMoPhong) {
   });
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
+  let taiKhoanTaoMoi = null;
+  let huyTheoDoiQuyen = null;
+  let huyTheoDoiHoSo = null;
+  let quyenOperator = null;
+  let hoSoOperator = null;
+  let loiDocQuyen = false;
+  let loiDocHoSo = false;
   try { $('remember-login').checked = localStorage.getItem('safety-remember-login') === 'true'; }
   catch { /* Keep the unchecked default if preferences are unavailable. */ }
   coSoDuLieu = getDatabase(app);
@@ -384,17 +423,126 @@ if (cheDoMoPhong) {
     });
   }
 
+  function hienThiOperators() {
+    if (auth.currentUser?.uid !== ownerUid) return;
+    if (loiDocQuyen) {
+      $('operator-list').replaceChildren();
+      datChu('operator-count', '—');
+      datChu('operator-list-status', 'Không đọc được danh sách quyền. Hãy áp dụng Database Rules mới.');
+      return;
+    }
+    if (quyenOperator === null) return;
+    const hoSo = hoSoOperator || {};
+    const rows = Object.entries(quyenOperator).filter(([, value]) => typeof value === 'boolean')
+      .sort(([uidA, activeA], [uidB, activeB]) => Number(activeB) - Number(activeA) ||
+        (hoSo[uidA]?.email || uidA).localeCompare(hoSo[uidB]?.email || uidB, 'vi'))
+      .map(([uid, active]) => {
+        const row = document.createElement('li');
+        row.className = 'operator-row';
+        const name = document.createElement('strong');
+        name.textContent = hoSo[uid]?.email || `UID: ${uid}`;
+        const detail = document.createElement('small');
+        detail.textContent = hoSo[uid]?.email ? `UID: ${uid}` : 'Chưa lưu email cho tài khoản cũ';
+        const status = document.createElement('span');
+        status.className = 'operator-state';
+        status.dataset.active = String(active);
+        status.textContent = active ? 'Đang có quyền' : 'Đã thu hồi';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'button';
+        button.textContent = active ? 'Thu hồi quyền' : 'Cấp lại quyền';
+        button.addEventListener('click', async () => {
+          if (button.disabled || auth.currentUser?.uid !== ownerUid) return;
+          button.disabled = true;
+          trangThaiTaiKhoan('operator-action-status', 'Đang cập nhật quyền…');
+          try {
+            await set(ref(coSoDuLieu, `operators/${uid}`), !active);
+            trangThaiTaiKhoan('operator-action-status', active ? 'Đã thu hồi quyền truy cập thiết bị.' : 'Đã cấp lại quyền truy cập thiết bị.');
+          } catch {
+            trangThaiTaiKhoan('operator-action-status', 'Không cập nhật được quyền. Kiểm tra kết nối và Database Rules.', true);
+          } finally {
+            button.disabled = false;
+          }
+        });
+        row.append(name, detail, status, button);
+        return row;
+      });
+    $('operator-list').replaceChildren(...rows);
+    datChu('operator-count', String(rows.length));
+    datChu('operator-list-status', loiDocHoSo ?
+      'Chưa đọc được email; danh sách đang hiển thị theo UID. Hãy áp dụng Database Rules mới.' :
+      rows.length ? '' : 'Chưa cấp quyền cho tài khoản nào.');
+  }
+
+  function theoDoiOperators() {
+    quyenOperator = null;
+    hoSoOperator = null;
+    loiDocQuyen = false;
+    loiDocHoSo = false;
+    $('operator-list').replaceChildren();
+    datChu('operator-count', '…');
+    datChu('operator-list-status', 'Đang tải tài khoản…');
+    huyTheoDoiQuyen = onValue(ref(coSoDuLieu, 'operators'), snapshot => {
+      quyenOperator = snapshot.val() || {};
+      hienThiOperators();
+    }, () => {
+      loiDocQuyen = true;
+      hienThiOperators();
+    });
+    huyTheoDoiHoSo = onValue(ref(coSoDuLieu, 'operatorProfiles'), snapshot => {
+      hoSoOperator = snapshot.val() || {};
+      loiDocHoSo = false;
+      hienThiOperators();
+    }, () => {
+      loiDocHoSo = true;
+      hienThiOperators();
+    });
+  }
+
   onAuthStateChanged(auth, user => {
     const daDangNhap = Boolean(user);
+    chuSoHuuDangNhap = daDangNhap && user.uid === ownerUid;
+    wifiDangCho = null;
+    thongBaoWifi = '';
+    loiWifi = false;
+    $('wifi-ssid').value = '';
+    $('wifi-password').value = '';
+    $('show-wifi-password').checked = false;
+    $('wifi-password').type = 'password';
     lenhDangCho = null;
     luaChonQuat = 'auto';
     thongBaoLenh = '';
     khungDangNhap.hidden = daDangNhap;
     bangDieuKhien.hidden = !daDangNhap;
     $('sign-out').hidden = !daDangNhap;
+    $('tab-account').hidden = !daDangNhap;
+    $('create-account-section').hidden = !daDangNhap || user.uid !== ownerUid;
+    $('operator-management-section').hidden = !chuSoHuuDangNhap;
+    $('wifi-settings-section').hidden = !chuSoHuuDangNhap;
+    datChu('account-current-email', user?.email || 'tài khoản đang đăng nhập');
+    datChu('create-account-status', '');
+    datChu('change-password-status', '');
+    datChu('operator-action-status', '');
+    if (huyTheoDoiQuyen) huyTheoDoiQuyen();
+    if (huyTheoDoiHoSo) huyTheoDoiHoSo();
+    huyTheoDoiQuyen = null;
+    huyTheoDoiHoSo = null;
+    quyenOperator = null;
+    hoSoOperator = null;
+    loiDocQuyen = false;
+    loiDocHoSo = false;
+    $('operator-list').replaceChildren();
     chonTab('overview');
     if (daDangNhap) { datPhamViLichSu(user.uid); theoDoiThietBi(); }
     else {
+      for (const id of ['account-password', 'account-confirm', 'current-password',
+        'new-password', 'confirm-password']) {
+        $(id).value = '';
+        $(id).type = 'password';
+      }
+      $('account-email').value = '';
+      $('show-account-passwords').checked = false;
+      $('show-change-passwords').checked = false;
       if (huyTheoDoiDuLieu) huyTheoDoiDuLieu();
       huyTheoDoiDuLieu = null;
       duLieuThietBi = chuanHoaDuLieu();
@@ -408,6 +556,8 @@ if (cheDoMoPhong) {
       $('connection-label').textContent = 'Chưa đăng nhập';
       $('last-updated').textContent = 'Đăng nhập để xem thiết bị';
     }
+    if (chuSoHuuDangNhap) theoDoiOperators();
+    hienThiWifi();
   });
 
   $('login-form').addEventListener('submit', async event => {
@@ -429,6 +579,152 @@ if (cheDoMoPhong) {
     }
   });
   $('sign-out').addEventListener('click', () => signOut(auth));
+
+  function trangThaiTaiKhoan(id, text, error = false) {
+    datChu(id, text);
+    $(id).dataset.error = String(error);
+  }
+  function loiTaiKhoan(error, fallback) {
+    const messages = {
+      'auth/email-already-in-use': 'Email này đã có tài khoản.',
+      'auth/invalid-email': 'Email không hợp lệ.',
+      'auth/weak-password': 'Mật khẩu quá yếu. Hãy dùng ít nhất 8 ký tự.',
+      'auth/wrong-password': 'Mật khẩu hiện tại không đúng.',
+      'auth/invalid-credential': 'Mật khẩu hiện tại không đúng.',
+      'auth/too-many-requests': 'Thao tác quá nhiều lần. Hãy thử lại sau.',
+      'auth/network-request-failed': 'Không kết nối được Firebase. Hãy thử lại.',
+      'auth/requires-recent-login': 'Phiên đăng nhập đã cũ. Hãy đăng xuất và đăng nhập lại.',
+      'auth/operation-not-allowed': 'Chưa bật đăng nhập Email/Password trong Firebase.'
+    };
+    return messages[error?.code] || fallback;
+  }
+  for (const [toggle, fields] of [
+    ['show-account-passwords', ['account-password', 'account-confirm']],
+    ['show-change-passwords', ['current-password', 'new-password', 'confirm-password']]
+  ]) {
+    $(toggle).addEventListener('change', () => {
+      for (const field of fields) $(field).type = $(toggle).checked ? 'text' : 'password';
+    });
+  }
+
+  $('create-account-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (auth.currentUser?.uid !== ownerUid) {
+      trangThaiTaiKhoan('create-account-status', 'Chỉ chủ sở hữu được thêm tài khoản.', true);
+      return;
+    }
+    const email = $('account-email').value.trim();
+    const password = $('account-password').value;
+    if (password.length < 8 || password !== $('account-confirm').value) {
+      trangThaiTaiKhoan('create-account-status', 'Mật khẩu cần ít nhất 8 ký tự và hai ô phải giống nhau.', true);
+      return;
+    }
+    const button = $('create-account-button');
+    button.disabled = true;
+    trangThaiTaiKhoan('create-account-status', 'Đang tạo tài khoản và cấp quyền…');
+    try {
+      if (!taiKhoanTaoMoi) {
+        taiKhoanTaoMoi = getAuth(initializeApp(firebaseConfig, 'account-creator'));
+      }
+      await setPersistence(taiKhoanTaoMoi, inMemoryPersistence);
+      const { user } = await createUserWithEmailAndPassword(taiKhoanTaoMoi, email, password);
+      try {
+        await set(ref(coSoDuLieu, `operators/${user.uid}`), true);
+      } catch {
+        try { await deleteUser(user); }
+        catch {
+          trangThaiTaiKhoan('create-account-status',
+            `Tài khoản đã tạo nhưng chưa có quyền. Kiểm tra UID ${user.uid} trong Firebase Console.`, true);
+          return;
+        }
+        const grantError = new Error('grant-failed');
+        grantError.code = 'grant-failed';
+        throw grantError;
+      }
+      let daLuuEmail = true;
+      try {
+        await set(ref(coSoDuLieu, `operatorProfiles/${user.uid}`), { email, createdAt: serverTimestamp() });
+      } catch { daLuuEmail = false; }
+      $('account-email').value = '';
+      trangThaiTaiKhoan('create-account-status', daLuuEmail ?
+        `Đã tạo tài khoản ${email} và cấp quyền operator.` :
+        `Đã tạo tài khoản ${email} và cấp quyền; email chưa lưu trong danh sách. Áp dụng Database Rules mới.`, !daLuuEmail);
+    } catch (error) {
+      trangThaiTaiKhoan('create-account-status',
+        error?.code === 'grant-failed' ? 'Không cấp được quyền; tài khoản vừa tạo đã được xóa.' :
+          loiTaiKhoan(error, 'Không tạo được tài khoản. Kiểm tra kết nối và thử lại.'), true);
+    } finally {
+      if (taiKhoanTaoMoi?.currentUser) {
+        try { await signOut(taiKhoanTaoMoi); } catch { /* In-memory session ends on reload. */ }
+      }
+      $('account-password').value = '';
+      $('account-confirm').value = '';
+      button.disabled = false;
+    }
+  });
+
+  $('change-password-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const user = auth.currentUser;
+    if (!user?.email) {
+      trangThaiTaiKhoan('change-password-status', 'Hãy đăng nhập bằng email để đổi mật khẩu.', true);
+      return;
+    }
+    const currentPassword = $('current-password').value;
+    const newPassword = $('new-password').value;
+    if (newPassword.length < 8 || newPassword !== $('confirm-password').value) {
+      trangThaiTaiKhoan('change-password-status', 'Mật khẩu mới cần ít nhất 8 ký tự và hai ô phải giống nhau.', true);
+      return;
+    }
+    const button = $('change-password-button');
+    button.disabled = true;
+    trangThaiTaiKhoan('change-password-status', 'Đang đổi mật khẩu…');
+    try {
+      await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
+      await updatePassword(user, newPassword);
+      trangThaiTaiKhoan('change-password-status', 'Đã đổi mật khẩu. Bạn có thể tiếp tục sử dụng tài khoản.');
+    } catch (error) {
+      trangThaiTaiKhoan('change-password-status', loiTaiKhoan(error, 'Không đổi được mật khẩu. Hãy thử lại.'), true);
+    } finally {
+      for (const id of ['current-password', 'new-password', 'confirm-password']) $(id).value = '';
+      button.disabled = false;
+    }
+  });
+
+  $('wifi-settings-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!chuSoHuuDangNhap || duLieuThietBi.wifiConfigVersion !== 1 ||
+        duLieuCu(duLieuThietBi.updatedAt) || wifiDangCho) return;
+    const ssid = $('wifi-ssid').value;
+    const password = $('wifi-password').value;
+    const error = loiCauHinhWifi(ssid, password);
+    if (error) {
+      thongBaoWifi = error;
+      loiWifi = true;
+      hienThiWifi();
+      return;
+    }
+    const requestId = crypto.randomUUID();
+    wifiDangCho = { id: requestId, sentAt: Date.now() };
+    thongBaoWifi = '';
+    loiWifi = false;
+    hienThiWifi();
+    try {
+      await set(ref(coSoDuLieu, `devices/${deviceId}/commands/wifi`), { requestId, ssid, password });
+      $('wifi-ssid').value = '';
+    } catch {
+      wifiDangCho = null;
+      thongBaoWifi = 'Không gửi được cấu hình Wi-Fi. Kiểm tra quyền Firebase và thử lại.';
+      loiWifi = true;
+    } finally {
+      $('wifi-password').value = '';
+      hienThiWifi();
+    }
+  });
+  $('show-wifi-password').addEventListener('change', () => {
+    $('wifi-password').type = $('show-wifi-password').checked ? 'text' : 'password';
+  });
+
   guiLenh = async (values, giaTriGhiSu = values) => {
     if (dangGuiLenh) return;
     const maLenh = crypto.randomUUID();

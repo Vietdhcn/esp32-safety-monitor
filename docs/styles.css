@@ -186,7 +186,7 @@ footer { padding: 20px 0 24px; font-size: 12px; text-align: center; }
 .pivot-item:hover { color: var(--text); background: var(--subtle-fill); }
 .pivot-item[aria-selected="true"] { color: var(--text); }
 .pivot-item[aria-selected="true"]::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: -1px; height: 3px; border-radius: 3px; background: var(--accent); }
-#overview-view, #history-view { display: flex; flex-direction: column; gap: 16px; outline: none; }
+#overview-view, #history-view, #account-view { display: flex; flex-direction: column; gap: 16px; outline: none; }
 
 /* InfoBar */
 .infobar { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 12px; padding: 12px 16px; border: 1px solid var(--stroke); border-radius: var(--radius); background: var(--info-fill); }
@@ -208,11 +208,33 @@ footer { padding: 20px 0 24px; font-size: 12px; text-align: center; }
 .login .link { display: inline-block; margin-top: 14px; }
 form { display: flex; flex-direction: column; gap: 6px; }
 form label { font-size: 13px; color: var(--text-2); }
-form input[type="email"], form input[type="password"] { min-height: 34px; margin-bottom: 8px; padding: 5px 11px; border: 1px solid var(--stroke-strong); border-bottom: 1px solid var(--text-3); border-radius: var(--radius-sm); background: var(--card); color: var(--text); }
-form input[type="email"]:focus, form input[type="password"]:focus { outline: none; border-bottom: 2px solid var(--accent); padding-bottom: 4px; }
+form input[type="email"], form input[type="password"], form input[type="text"] { min-height: 34px; margin-bottom: 8px; padding: 5px 11px; border: 1px solid var(--stroke-strong); border-bottom: 1px solid var(--text-3); border-radius: var(--radius-sm); background: var(--card); color: var(--text); }
+form input[type="email"]:focus, form input[type="password"]:focus, form input[type="text"]:focus { outline: none; border-bottom: 2px solid var(--accent); padding-bottom: 4px; }
 .check { display: flex; align-items: center; gap: 8px; margin: 2px 0 10px; color: var(--text) !important; }
 .check input { width: 18px; height: 18px; accent-color: var(--accent); }
 .form-error { min-height: 20px; color: var(--danger); font-size: 13px; }
+.account-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.account-card { min-width: 0; padding: 20px 24px 16px; }
+.account-card h3 { font-size: 18px; margin-bottom: 6px; }
+.account-card > p { margin-bottom: 20px; }
+.account-card form { max-width: 440px; }
+.account-card .button { align-self: flex-start; }
+#wifi-current-ssid { overflow-wrap: anywhere; }
+.form-status { min-block-size: 2lh; margin-top: 6px; color: var(--success); }
+.form-status[data-error="true"] { color: var(--danger); }
+.form-status:empty { display: none; }
+.operator-card { grid-column: 1 / -1; }
+.operator-card > p { margin-bottom: 12px; }
+.operator-card .form-status { min-block-size: 1lh; margin-top: 4px; }
+.operator-list { list-style: none; margin: 0; padding: 0; }
+.operator-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px 16px; padding: 12px 0; border-top: 1px solid var(--stroke); }
+.operator-row strong, .operator-row small { min-width: 0; overflow-wrap: anywhere; }
+.operator-row strong { grid-column: 1; grid-row: 1; }
+.operator-row small { color: var(--text-2); }
+.operator-row small { grid-column: 1; grid-row: 2; }
+.operator-state { grid-column: 2; grid-row: 1 / span 2; color: var(--success); font-size: 13px; }
+.operator-state[data-active="false"] { color: var(--text-2); }
+.operator-row .button { grid-column: 3; grid-row: 1 / span 2; min-width: 120px; }
 
 /* Thẻ chỉ số */
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
@@ -299,6 +321,10 @@ form input[type="email"]:focus, form input[type="password"]:focus { outline: non
   .connection { text-align: left; }
   .connection-dot { order: 0; }
   .login { grid-template-columns: 1fr; padding: 20px; }
+  .account-grid { grid-template-columns: 1fr; }
+  .account-card { padding: 20px 20px 16px; }
+  .operator-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .operator-row .button { grid-column: 1 / -1; grid-row: 3; justify-self: start; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .setting-row { flex-wrap: wrap; }
   .setting-row .setting-text { flex-basis: calc(100% - 50px); }

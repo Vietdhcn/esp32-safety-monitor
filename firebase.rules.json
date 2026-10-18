@@ -17,6 +17,9 @@
           "buzzerOn": {
             ".validate": "newData.isBoolean()"
           },
+          "fanSpeedSupported": {
+            ".validate": "newData.isBoolean()"
+          },
           "alarmLedMode": {
             ".validate": "newData.val() === 'auto' || newData.val() === 'on' || newData.val() === 'off'"
           },
@@ -28,6 +31,18 @@
           },
           "controlsVersion": {
             ".validate": "newData.val() === 2"
+          },
+          "wifiConfigVersion": {
+            ".validate": "newData.val() === 1"
+          },
+          "wifiSsid": {
+            ".validate": "newData.isString() && newData.val().length <= 32"
+          },
+          "wifiChangeId": {
+            ".validate": "newData.isString() && newData.val().length <= 64"
+          },
+          "wifiChangeStatus": {
+            ".validate": "newData.val() === 'connecting' || newData.val() === 'applied' || newData.val() === 'failed'"
           },
           "muteUntil": {
             ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= now + 35000"
@@ -53,6 +68,12 @@
           "humidityPct": {
             ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
           },
+          "gasRaw": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 4095"
+          },
+          "fanSpeedPct": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
+          },
           "fanReason": {
             ".validate": "newData.val() === 'gas' || newData.val() === 'purge' || newData.val() === 'manual' || newData.val() === 'blocked' || newData.val() === 'off'"
           },
@@ -71,6 +92,9 @@
           "uptimeS": {
             ".validate": "newData.isNumber() && newData.val() >= 0"
           },
+          "hardwareId": {
+            ".validate": "newData.isString() && newData.val().matches(/^[0-9A-F]{12}$/)"
+          },
           "resetReason": {
             ".validate": "newData.isString() && newData.val().length <= 16"
           },
@@ -79,10 +103,14 @@
           }
         },
         "commands": {
-          ".read": "auth != null && (auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2' || auth.uid === 'NfMfoVPKh3fAHQedBJ93DumnkMn1' || root.child('operators').child(auth.uid).val() === true)",
+          ".read": "auth != null && (auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2' || auth.uid === 'NfMfoVPKh3fAHQedBJ93DumnkMn1')",
           "fanOn": {
             ".write": "(auth != null && (auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2' || root.child('operators').child(auth.uid).val() === true)) && newData.exists()",
             ".validate": "newData.isBoolean()"
+          },
+          "fanSpeedPct": {
+            ".write": "(auth != null && (auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2' || root.child('operators').child(auth.uid).val() === true)) && newData.exists()",
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100 && newData.val() % 1 === 0"
           },
           "muteRequestedAt": {
             ".write": "(auth != null && (auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2' || root.child('operators').child(auth.uid).val() === true)) && newData.exists()",
@@ -104,6 +132,22 @@
             ".write": "(auth != null && (auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2' || root.child('operators').child(auth.uid).val() === true)) && newData.exists()",
             ".validate": "newData.val() === 'auto' || newData.val() === 'on' || newData.val() === 'off'"
           },
+          "wifi": {
+            ".write": "auth != null && ((auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2' && newData.exists()) || (auth.uid === 'NfMfoVPKh3fAHQedBJ93DumnkMn1' && !newData.exists()))",
+            ".validate": "newData.hasChildren(['requestId', 'ssid', 'password'])",
+            "requestId": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 64 && newData.val().matches(/^[A-Za-z0-9_-]+$/)"
+            },
+            "ssid": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 32"
+            },
+            "password": {
+              ".validate": "newData.isString() && newData.val().length >= 8 && newData.val().length <= 63"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
           "$other": {
             ".validate": false
           }
@@ -111,10 +155,27 @@
       }
     },
     "operators": {
+      ".read": "auth != null && auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2'",
       "$uid": {
         ".read": "auth != null && (auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2' || auth.uid === $uid)",
         ".write": "auth != null && auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2'",
         ".validate": "newData.isBoolean()"
+      }
+    },
+    "operatorProfiles": {
+      ".read": "auth != null && auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2'",
+      "$uid": {
+        ".write": "auth != null && auth.uid === 'NK23PFt0RAe14EKVUiFFNjDXMsv2'",
+        ".validate": "newData.hasChildren(['email', 'createdAt'])",
+        "email": {
+          ".validate": "newData.isString() && newData.val().length > 3 && newData.val().length <= 254"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= now + 5000"
+        },
+        "$other": {
+          ".validate": false
+        }
       }
     }
   }

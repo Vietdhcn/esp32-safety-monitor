@@ -9,3 +9,5 @@ export const firebaseConfig = {
 };
 
 export const deviceId = 'esp32s-30p-01';
+// Must match the owner UID in firebase.rules.json. This identifier is public, not a secret.
+export const ownerUid = 'NK23PFt0RAe14EKVUiFFNjDXMsv2';

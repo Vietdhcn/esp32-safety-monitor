@@ -4,10 +4,12 @@
 #include "SafetyLogic.h"
 #include "Sensors.h"
 #include "TelemetryTiming.h"
+#include "WifiCredentials.h"
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include <Preferences.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <esp_system.h>
@@ -72,6 +74,65 @@ float temperatureC = NAN;
 float humidityPercent = NAN;
 TaskHandle_t firebaseTaskHandle = nullptr;
 const char* resetReason = "other";
+char activeWifiSsid[33] = WIFI_SSID;
+char activeWifiPassword[65] = WIFI_PASSWORD;
+char wifiChangeId[65] = "";
+char wifiChangeStatus[16] = "";
+bool wifiSwitchInProgress = false;
+String lastWifiRequestId;
+
+void loadSavedWifi() {
+  Preferences preferences;
+  if (!preferences.begin("safety-wifi", true)) return;
+  lastWifiRequestId = preferences.getString("last-wifi-id", "");
+  const String saved = preferences.getString("credentials", "");
+  preferences.end();
+  JsonDocument credentials;
+  if (deserializeJson(credentials, saved) != DeserializationError::Ok) return;
+  const char* ssid = credentials["ssid"] | "";
+  const char* password = credentials["password"] | "";
+  if (!wifiCredentialsValid(ssid, password)) return;
+  strlcpy(activeWifiSsid, ssid, sizeof(activeWifiSsid));
+  strlcpy(activeWifiPassword, password, sizeof(activeWifiPassword));
+  Serial.println("Loaded saved WiFi credentials");
+}
+
+bool saveWifi(const char* ssid, const char* password) {
+  JsonDocument credentials;
+  credentials["ssid"] = ssid;
+  credentials["password"] = password;
+  String saved;
+  serializeJson(credentials, saved);
+  Preferences preferences;
+  if (!preferences.begin("safety-wifi", false)) return false;
+  const bool stored = preferences.putString("credentials", saved) == saved.length();
+  preferences.end();
+  return stored;
+}
+
+void rememberWifiRequest(const char* requestId) {
+  Preferences preferences;
+  if (!preferences.begin("safety-wifi", false)) return;
+  preferences.putString("last-wifi-id", requestId);
+  preferences.end();
+}
+
+void setWifiChange(const char* requestId, const char* status, bool inProgress) {
+  portENTER_CRITICAL(&stateLock);
+  strlcpy(wifiChangeId, requestId, sizeof(wifiChangeId));
+  strlcpy(wifiChangeStatus, status, sizeof(wifiChangeStatus));
+  wifiSwitchInProgress = inProgress;
+  ++dataVersion;
+  portEXIT_CRITICAL(&stateLock);
+  notifyFirebaseTask();
+}
+
+bool changingWifi() {
+  portENTER_CRITICAL(&stateLock);
+  const bool changing = wifiSwitchInProgress;
+  portEXIT_CRITICAL(&stateLock);
+  return changing;
+}
 
 void notifyFirebaseTask() {
   if (firebaseTaskHandle) xTaskNotifyGive(firebaseTaskHandle);
@@ -270,6 +331,15 @@ unsigned long lastSignInAt = 0;
 SemaphoreHandle_t commandMutex = nullptr;  // Hai task cung co the ap dung lenh.
 String lastCommandId;
 bool commandsInitialized = false;
+struct WifiRequest {
+  char requestId[65] = "";
+  char ssid[33] = "";
+  char password[65] = "";
+};
+WifiRequest pendingWifi;
+bool wifiRequestPending = false;
+bool wifiCleanupPending = false;
+uint32_t lastWifiCleanupAt = 0;
 char commandStreamToken[2048] = "";
 uint32_t commandStreamGeneration = 0;
 portMUX_TYPE commandStreamTokenLock = portMUX_INITIALIZER_UNLOCKED;
@@ -294,7 +364,7 @@ void connectWifi() {
   WifiNetwork matchingNetworks[8];
   int matchCount = 0;
   for (int index = 0; index < networkCount && matchCount < 8; ++index) {
-    if (WiFi.SSID(index) == WIFI_SSID) {
+    if (WiFi.SSID(index) == activeWifiSsid) {
       matchingNetworks[matchCount].channel = WiFi.channel(index);
       memcpy(matchingNetworks[matchCount].bssid, WiFi.BSSID(index), 6);
       ++matchCount;
@@ -303,7 +373,7 @@ void connectWifi() {
   Serial.printf("WiFi scan count=%d targetCount=%d\n", networkCount, matchCount);
   WiFi.scanDelete();
   for (int index = 0; index < matchCount; ++index) {
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD, matchingNetworks[index].channel, matchingNetworks[index].bssid);
+    WiFi.begin(activeWifiSsid, activeWifiPassword, matchingNetworks[index].channel, matchingNetworks[index].bssid);
     const unsigned long startedAt = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - startedAt < 12000) {
       delay(100);
@@ -314,7 +384,7 @@ void connectWifi() {
     WiFi.disconnect(false, false);
     delay(500);
   }
-  if (WiFi.status() != WL_CONNECTED) WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  if (WiFi.status() != WL_CONNECTED) WiFi.begin(activeWifiSsid, activeWifiPassword);
   WiFi.setAutoReconnect(true);
 }
 
@@ -440,6 +510,24 @@ void applyFirebaseCommand(JsonVariantConst value) {
       Serial.printf("Command applied: %s\n", commandId);
     }
   }
+  const JsonVariantConst wifi = value["wifi"];
+  const char* wifiRequestId = wifi["requestId"] | "";
+  if (wifiRequestId[0] && lastWifiRequestId != wifiRequestId) {
+    lastWifiRequestId = wifiRequestId;
+    const char* ssid = wifi["ssid"] | "";
+    const char* password = wifi["password"] | "";
+    if (strlen(wifiRequestId) <= 64 && wifiCredentialsValid(ssid, password)) {
+      strlcpy(pendingWifi.requestId, wifiRequestId, sizeof(pendingWifi.requestId));
+      strlcpy(pendingWifi.ssid, ssid, sizeof(pendingWifi.ssid));
+      strlcpy(pendingWifi.password, password, sizeof(pendingWifi.password));
+      wifiRequestPending = true;
+      Serial.printf("WiFi change requested for SSID=%s\n", pendingWifi.ssid);
+    } else {
+      Serial.println("Rejected invalid WiFi change request");
+    }
+  } else if (wifiRequestId[0] && lastWifiRequestId == wifiRequestId) {
+    wifiCleanupPending = true;
+  }
   xSemaphoreGive(commandMutex);
 }
 
@@ -467,6 +555,98 @@ void readFirebaseCommand(const char* token) {
   }
 }
 
+void clearWifiRequest(const char* token) {
+  if (WiFi.status() != WL_CONNECTED ||
+      !wifiCleanupDue(wifiCleanupPending, millis(), lastWifiCleanupAt)) return;
+  lastWifiCleanupAt = millis();
+  WiFiClientSecure cleanupClient;
+  cleanupClient.useBuiltinCACertBundle();
+  cleanupClient.setHandshakeTimeout(6);
+  const String url = databaseBaseUrl() + "/devices/" + DEVICE_ID + "/commands/wifi.json?auth=" + token;
+  HTTPClient get;
+  if (!get.begin(cleanupClient, url)) return;
+  get.setConnectTimeout(4000);
+  get.setTimeout(3500);
+  const char* etagHeader[] = {"ETag"};
+  get.collectHeaders(etagHeader, 1);
+  get.addHeader("X-Firebase-ETag", "true");
+  const int readStatus = get.GET();
+  const String etag = get.header("ETag");
+  String response = readStatus == 200 ? get.getString() : "";
+  get.end();
+  cleanupClient.stop();
+  if (readStatus != 200 || !etag.length()) {
+    Serial.printf("WiFi request cleanup read HTTP %d\n", readStatus);
+    return;
+  }
+  JsonDocument current;
+  if (deserializeJson(current, response) != DeserializationError::Ok) return;
+  if (current.isNull()) {
+    wifiCleanupPending = false;
+    return;
+  }
+  const char* cloudId = current["requestId"] | "";
+  if (!wifiCleanupMatches(cloudId, lastWifiRequestId.c_str())) {
+    wifiCleanupPending = false;  // A newer request must be handled by the next stream session.
+    return;
+  }
+  HTTPClient put;
+  if (!put.begin(cleanupClient, url + "&print=silent")) return;
+  put.setConnectTimeout(4000);
+  put.setTimeout(3500);
+  put.addHeader("Content-Type", "application/json");
+  put.addHeader("if-match", etag);
+  const int deleteStatus = put.PUT("null");
+  put.end();
+  cleanupClient.stop();
+  wifiCleanupPending = deleteStatus != 204 && deleteStatus != 200 && deleteStatus != 412;
+  if (wifiCleanupPending) Serial.printf("WiFi request cleanup write HTTP %d\n", deleteStatus);
+}
+
+void applyPendingWifiChange(const char* token) {
+  if (!wifiRequestPending) return;
+  WifiRequest request = pendingWifi;
+  wifiRequestPending = false;
+  setWifiChange(request.requestId, "connecting", true);
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(false, false);
+  vTaskDelay(pdMS_TO_TICKS(200));
+  WiFi.begin(request.ssid, request.password);
+  const uint32_t startedAt = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - startedAt < 15000) {
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+
+  bool verified = false;
+  if (WiFi.status() == WL_CONNECTED) {
+    WiFiClientSecure verifyClient;
+    verifyClient.useBuiltinCACertBundle();
+    verifyClient.setHandshakeTimeout(6);
+    String response;
+    const String url = databaseBaseUrl() + "/devices/" + DEVICE_ID + "/telemetry.json?auth=" + token + "&shallow=true";
+    verified = firebaseRequest(url, "GET", "", response, false, &verifyClient) == 200;
+  }
+
+  if (verified && saveWifi(request.ssid, request.password)) {
+    portENTER_CRITICAL(&stateLock);
+    strlcpy(activeWifiSsid, request.ssid, sizeof(activeWifiSsid));
+    strlcpy(activeWifiPassword, request.password, sizeof(activeWifiPassword));
+    portEXIT_CRITICAL(&stateLock);
+    WiFi.setAutoReconnect(true);
+    Serial.printf("WiFi change applied for SSID=%s\n", request.ssid);
+    setWifiChange(request.requestId, "applied", false);
+  } else {
+    Serial.println("WiFi change failed; restoring previous network");
+    connectWifi();
+    setWifiChange(request.requestId, "failed", false);
+  }
+  rememberWifiRequest(request.requestId);
+  wifiCleanupPending = true;
+  lastWifiCleanupAt = 0;
+  memset(request.password, 0, sizeof(request.password));
+  memset(pendingWifi.password, 0, sizeof(pendingWifi.password));
+}
+
 // Luong su kien (Server-Sent Events) de nhan lenh gan nhu tuc thi.
 void commandStreamTask(void*) {
   char token[sizeof(commandStreamToken)];
@@ -489,6 +669,8 @@ void commandStreamTask(void*) {
     if (!streamHttp.begin(streamClient, url)) {
       streamClient.stop();
       readFirebaseCommand(token);
+      applyPendingWifiChange(token);
+      clearWifiRequest(token);
       vTaskDelay(pdMS_TO_TICKS(1000));
       continue;
     }
@@ -509,7 +691,8 @@ void commandStreamTask(void*) {
         portENTER_CRITICAL(&commandStreamTokenLock);
         latestGeneration = commandStreamGeneration;
         portEXIT_CRITICAL(&commandStreamTokenLock);
-        if (latestGeneration != generation || millis() - lastEventAt > 45000) break;
+        if (latestGeneration != generation || millis() - lastEventAt > 45000 ||
+            wifiCleanupDue(wifiCleanupPending, millis(), lastWifiCleanupAt)) break;
         if (!stream->available()) {
           vTaskDelay(pdMS_TO_TICKS(10));
           continue;
@@ -541,6 +724,7 @@ void commandStreamTask(void*) {
                 commandCache[path + 1].set(data);
               }
               applyFirebaseCommand(commandCache.as<JsonVariantConst>());
+              if (wifiRequestPending || wifiCleanupDue(wifiCleanupPending, millis(), lastWifiCleanupAt)) break;
             }
           }
           eventName = "";
@@ -552,7 +736,10 @@ void commandStreamTask(void*) {
     }
     streamHttp.end();
     streamClient.stop();
-    if (WiFi.status() == WL_CONNECTED) readFirebaseCommand(token);
+    if (!wifiRequestPending && !wifiCleanupDue(wifiCleanupPending, millis(), lastWifiCleanupAt) &&
+        WiFi.status() == WL_CONNECTED) readFirebaseCommand(token);
+    applyPendingWifiChange(token);
+    clearWifiRequest(token);
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
@@ -574,6 +761,7 @@ int sendFirebaseData(const DeviceState& current) {
   data["statusLedMode"] = modeName(current.greenLedMode);
   data["buzzerMode"] = modeName(current.buzzerMode);
   data["controlsVersion"] = 2;
+  data["wifiConfigVersion"] = 1;
   data["logicVersion"] = FIRMWARE_LOGIC_VERSION;
   data["muteUntil"] = current.muteUntil;
   data["gasWarmup"] = current.gasWarmup;
@@ -582,6 +770,17 @@ int sendFirebaseData(const DeviceState& current) {
   data["resetReason"] = resetReason;
   data["uptimeS"] = millis() / 1000;
   data["appliedCommandId"] = current.commandId;
+  char reportedSsid[sizeof(activeWifiSsid)];
+  char reportedWifiChangeId[sizeof(wifiChangeId)];
+  char reportedWifiChangeStatus[sizeof(wifiChangeStatus)];
+  portENTER_CRITICAL(&stateLock);
+  strlcpy(reportedSsid, activeWifiSsid, sizeof(reportedSsid));
+  strlcpy(reportedWifiChangeId, wifiChangeId, sizeof(reportedWifiChangeId));
+  strlcpy(reportedWifiChangeStatus, wifiChangeStatus, sizeof(reportedWifiChangeStatus));
+  portEXIT_CRITICAL(&stateLock);
+  data["wifiSsid"] = reportedSsid;
+  data["wifiChangeId"] = reportedWifiChangeId;
+  if (reportedWifiChangeStatus[0]) data["wifiChangeStatus"] = reportedWifiChangeStatus;
   float currentTemperature;
   float currentHumidity;
   portENTER_CRITICAL(&stateLock);
@@ -616,6 +815,10 @@ void firebaseTask(void*) {
   uint8_t consecutiveNetworkFailures = 0;
   uint32_t lastPublishedAlarmEdgeAtMs = 0;
   for (;;) {
+    if (changingWifi()) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+      continue;
+    }
     if (WiFi.status() != WL_CONNECTED && millis() - lastWifiScanAt >= 30000) {
       lastWifiScanAt = millis();
       Serial.println("WiFi offline; scanning known SSID again");
@@ -642,7 +845,7 @@ void firebaseTask(void*) {
           lastSendTryAt = nowMs;
           const int telemetryStatus = sendFirebaseData(current);
           lastSendFailed = telemetryStatus != 204;
-          if (telemetryStatus < 0) {
+          if (telemetryStatus < 0 && !changingWifi()) {
             if (consecutiveNetworkFailures < 3) ++consecutiveNetworkFailures;
             if (consecutiveNetworkFailures >= 3 &&
                 (lastWifiRecoveryAt == 0 || millis() - lastWifiRecoveryAt >= 30000)) {
@@ -655,7 +858,7 @@ void firebaseTask(void*) {
               if (WiFi.status() == WL_CONNECTED && WiFi.BSSID(bssid) != nullptr) {
                 WiFi.disconnect(false, false);
                 // Hai AP cung SSID: ket noi lai dung BSSID da dang nhap duoc.
-                WiFi.begin(WIFI_SSID, WIFI_PASSWORD, channel, bssid);
+                WiFi.begin(activeWifiSsid, activeWifiPassword, channel, bssid);
               }
             }
           } else {
@@ -680,6 +883,7 @@ void firebaseTask(void*) {
 
 void setup() {
   Serial.begin(115200);
+  loadSavedWifi();
   resetReason = resetReasonName(esp_reset_reason());
   Serial.printf("Boot reason: %s\n", resetReason);
   if (strcmp(resetReason, "brownout") == 0) {

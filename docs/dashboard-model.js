@@ -6,6 +6,7 @@ export const cacCheDo = ['buzzerMode'];
 const cheDoHopLe = giaTri => giaTriCheDo.includes(giaTri) ? giaTri : null;
 const lyDoQuat = ['gas', 'purge', 'manual', 'blocked', 'off'];
 const lyDoKhoiDong = ['power-on', 'brownout', 'panic', 'watchdog', 'software', 'external', 'other'];
+const trangThaiDoiWifi = ['connecting', 'applied', 'failed'];
 // Firmware logicVersion 3: lọc nhiễu, tắt tiếng chỉ tắt còi, báo lửa dừng quạt tay.
 export const LOGIC_MOI = 3;
 export const laLogicMoi = duLieu => duLieu?.logicVersion >= LOGIC_MOI;
@@ -41,8 +42,21 @@ export function chuanHoaDuLieu(giaTri = {}) {
     gasWarmup: duLieu.gasWarmup === true, flameNoise: duLieu.flameNoise === true,
     resetReason: lyDoKhoiDong.includes(duLieu.resetReason) ? duLieu.resetReason : null,
     temperatureC: soDoHopLe(duLieu.temperatureC, -40, 80),
-    humidityPct: soDoHopLe(duLieu.humidityPct, 0, 100), updatedAt: soDoHopLe(duLieu.updatedAt, 1, Number.MAX_SAFE_INTEGER)
+    humidityPct: soDoHopLe(duLieu.humidityPct, 0, 100), updatedAt: soDoHopLe(duLieu.updatedAt, 1, Number.MAX_SAFE_INTEGER),
+    wifiConfigVersion: duLieu.wifiConfigVersion === 1 ? 1 : null,
+    wifiSsid: typeof duLieu.wifiSsid === 'string' && new TextEncoder().encode(duLieu.wifiSsid).length <= 32 ? duLieu.wifiSsid : null,
+    wifiChangeId: typeof duLieu.wifiChangeId === 'string' && duLieu.wifiChangeId.length <= 64 ? duLieu.wifiChangeId : null,
+    wifiChangeStatus: trangThaiDoiWifi.includes(duLieu.wifiChangeStatus) ? duLieu.wifiChangeStatus : null
   };
+}
+
+export function loiCauHinhWifi(ssid, password) {
+  const ssidBytes = new TextEncoder().encode(ssid || '').length;
+  const passwordBytes = new TextEncoder().encode(password || '').length;
+  if (!ssid?.trim() || ssidBytes > 32 || ssid.includes('\0')) return 'Tên Wi-Fi phải dài từ 1 đến 32 byte.';
+  if (passwordBytes < 8 || passwordBytes > 63 || /[^\x20-\x7e]/.test(password))
+    return 'Mật khẩu Wi-Fi WPA phải dài 8–63 ký tự ASCII.';
+  return null;
 }
 
 function quaHanCapNhat(thoiDiemCapNhat, hienTai, nguongMs) {

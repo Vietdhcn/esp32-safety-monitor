@@ -131,6 +131,50 @@ def compare(baseline, current, label, errors):
         errors.append(f"{label}: clipped descriptions {current['clippedDescriptions']}")
 
 
+def check_account_forms(page, case, errors):
+    page.evaluate("""() => {
+      document.getElementById('tab-account').hidden = false;
+      document.getElementById('create-account-section').hidden = false;
+      document.getElementById('account-password').value = 'temporary-password-123';
+      document.getElementById('account-confirm').value = 'temporary-password-123';
+      document.getElementById('new-password').value = 'new-password-123';
+      document.getElementById('account-current-email').textContent = 'owner-with-long-email@example-company-domain.com';
+      document.getElementById('tab-account').click();
+      window.scrollTo(0, 0);
+    }""")
+    def geometry():
+        return page.evaluate("""() => {
+          const rect = id => {
+            const box = document.getElementById(id).getBoundingClientRect();
+            return {top: box.top + scrollY, bottom: box.bottom + scrollY, height: box.height};
+          };
+          return {
+            cards: [rect('create-account-section'), rect('change-password-form')],
+            buttons: [rect('create-account-button'), rect('change-password-button')],
+            inputs: [rect('account-password'), rect('new-password')],
+            footer: document.querySelector('footer').getBoundingClientRect().top + scrollY,
+            scrollY,
+            overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          };
+        }""")
+    before = geometry()
+    if before['cards'][0]['bottom'] - before['buttons'][0]['bottom'] > 30:
+        errors.append(f"{case}/account: excessive blank space below create button")
+    for checkbox in ('show-account-passwords', 'show-change-passwords'):
+        page.locator(f'#{checkbox}').evaluate('input => input.click()')
+        after = geometry()
+        for key in ('cards', 'buttons', 'inputs'):
+            for index, (old, new) in enumerate(zip(before[key], after[key])):
+                for dimension in ('top', 'bottom', 'height'):
+                    if abs(old[dimension] - new[dimension]) > TOLERANCE:
+                        errors.append(f"{case}/account/{checkbox}: {key}[{index}].{dimension} shifted")
+        if abs(before['footer'] - after['footer']) > TOLERANCE or before['scrollY'] != after['scrollY']:
+            errors.append(f"{case}/account/{checkbox}: page position shifted")
+        if after['overflow'] > TOLERANCE:
+            errors.append(f"{case}/account/{checkbox}: horizontal overflow")
+        page.locator(f'#{checkbox}').evaluate('input => input.click()')
+
+
 def run_case(browser, url, width, font_name, font_css, theme, errors):
     page = browser.new_page(viewport={"width": width, "height": 700})
     case = f"{width}px/{font_name}/{theme}"
@@ -194,7 +238,7 @@ def run_case(browser, url, width, font_name, font_css, theme, errors):
             ('Điều khiển quạt', ('fan-off', 'fan-on', 'fan-auto')),
         ):
             check_button_geometry(page, f'.segmented[aria-label="{group}"] .segment', ids, f"{case}/{group}", errors)
-        check_button_geometry(page, '#dashboard-tabs .pivot-item',
+        check_button_geometry(page, '#dashboard-tabs .pivot-item:not([hidden])',
                               ('tab-history', 'tab-overview'), f"{case}/tabs", errors)
         page.locator('#tab-history').evaluate('button => button.click()')
         check_button_geometry(page, '.segmented[aria-label="Lọc lịch sử hoạt động"] .segment',
@@ -227,6 +271,9 @@ def run_case(browser, url, width, font_name, font_css, theme, errors):
             page.evaluate("replacements => { for (const [id, value] of Object.entries(replacements)) document.getElementById(id).textContent = value; }", replacements)
             compare(baseline, snapshot(page), f"{case}/{state}", errors)
             page.evaluate("originals => { for (const [id, value] of Object.entries(originals)) document.getElementById(id).textContent = value; }", originals)
+
+        if width in (1280, 390) and font_name == "normal":
+            check_account_forms(page, case, errors)
 
     except Exception as exc:
         errors.append(f"{case}: {exc}")
