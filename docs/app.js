@@ -1,5 +1,5 @@
 import { firebaseConfig, deviceId, ownerUid } from './config.js?v=20261018-1';
-import { chuanHoaDuLieu, duLieuCu, thietBiNgoaiTuyen, laMoPhongNoiBo, taoDuLieuMoPhong, cacCheDo, luaChonMauDen, lenhDen, coTheDieuKhien, coTheTamTat, dangTamTat, tamTatTatCa, laLogicMoi, lenhHopLe, tienDoLenh, loiCauHinhWifi } from './dashboard-model.js?v=20261018-4';
+import { chuanHoaDuLieu, duLieuCu, thietBiNgoaiTuyen, laMoPhongNoiBo, taoDuLieuMoPhong, cacCheDo, luaChonMauDen, lenhDen, coTheDieuKhien, coTheTamTat, dangTamTat, tamTatTatCa, laLogicMoi, lenhHopLe, tienDoLenh, loiCauHinhWifi } from './dashboard-model.js?v=20261018-5';
 import { cacThayDoiLichSu, themLichSu, lichSuThaoTac, locLichSu, xoaLichSuTheoNguon, lamSachLichSuHeThongCu } from './history-model.js?v=20261017-1';
 
 const $ = id => document.getElementById(id);
@@ -20,6 +20,7 @@ let chuSoHuuDangNhap = false;
 let wifiDangCho = null;
 let thongBaoWifi = '';
 let loiWifi = false;
+let wifiListKey = '';
 let guiLenh = async () => {};
 let khoaLichSu = '';
 let cacMucLichSu = [];
@@ -203,7 +204,8 @@ function hienThiWifi() {
       ['applied', 'failed'].includes(duLieuThietBi.wifiChangeStatus)) {
     loiWifi = duLieuThietBi.wifiChangeStatus === 'failed';
     thongBaoWifi = duLieuThietBi.wifiChangeStatus === 'applied' ?
-      'ESP32 đã kết nối Wi-Fi mới và lưu cấu hình.' : 'Không kết nối được mạng mới; ESP32 đã quay về mạng cũ.';
+      'ESP32 đã kết nối và lưu Wi-Fi mới; khi mất kết nối sẽ thử các mạng đã lưu.' :
+      'Không kết nối được mạng mới; ESP32 đã thử các mạng đã lưu.';
     wifiDangCho = null;
   }
   if (wifiDangCho && Date.now() - wifiDangCho.sentAt > 90_000) {
@@ -212,11 +214,27 @@ function hienThiWifi() {
     thongBaoWifi = 'Chưa nhận được xác nhận. Kiểm tra kết nối của ESP32 trước khi thử lại.';
   }
   datChu('wifi-current-ssid', duLieuThietBi.wifiSsid || 'Chưa có dữ liệu');
-  $('wifi-settings-button').disabled = !chuSoHuuDangNhap || duLieuThietBi.wifiConfigVersion !== 1 ||
+  const listKey = JSON.stringify([duLieuThietBi.wifiSavedSsids, duLieuThietBi.wifiSsid]);
+  if (wifiListKey !== listKey) {
+    wifiListKey = listKey;
+    const rows = duLieuThietBi.wifiSavedSsids.map(ssid => {
+      const item = document.createElement('li');
+      item.textContent = ssid;
+      item.dataset.active = String(ssid === duLieuThietBi.wifiSsid);
+      return item;
+    });
+    if (!rows.length) {
+      const item = document.createElement('li');
+      item.textContent = 'Chưa có dữ liệu';
+      rows.push(item);
+    }
+    $('wifi-saved-list').replaceChildren(...rows);
+  }
+  $('wifi-settings-button').disabled = !chuSoHuuDangNhap || duLieuThietBi.wifiConfigVersion !== 2 ||
     duLieuCu(duLieuThietBi.updatedAt) || Boolean(wifiDangCho);
-  const canNapFirmware = duLieuThietBi.wifiConfigVersion !== 1;
+  const canNapFirmware = duLieuThietBi.wifiConfigVersion !== 2;
   const message = wifiDangCho ? 'Đang chờ ESP32 thử Wi-Fi mới và xác nhận…' : thongBaoWifi ||
-    (canNapFirmware ? 'Cần nạp firmware hỗ trợ đổi Wi-Fi một lần.' :
+    (canNapFirmware ? 'Cần nạp firmware hỗ trợ nhiều mạng Wi-Fi một lần.' :
       duLieuCu(duLieuThietBi.updatedAt) ? 'ESP32 cần trực tuyến để nhận cấu hình mới.' : '');
   datChu('wifi-settings-status', message);
   $('wifi-settings-status').dataset.error = String(!wifiDangCho && (loiWifi || canNapFirmware));
@@ -693,7 +711,7 @@ if (cheDoMoPhong) {
 
   $('wifi-settings-form').addEventListener('submit', async event => {
     event.preventDefault();
-    if (!chuSoHuuDangNhap || duLieuThietBi.wifiConfigVersion !== 1 ||
+    if (!chuSoHuuDangNhap || duLieuThietBi.wifiConfigVersion !== 2 ||
         duLieuCu(duLieuThietBi.updatedAt) || wifiDangCho) return;
     const ssid = $('wifi-ssid').value;
     const password = $('wifi-password').value;

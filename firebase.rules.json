@@ -33,10 +33,15 @@
             ".validate": "newData.val() === 2"
           },
           "wifiConfigVersion": {
-            ".validate": "newData.val() === 1"
+            ".validate": "newData.val() === 1 || newData.val() === 2"
           },
           "wifiSsid": {
             ".validate": "newData.isString() && newData.val().length <= 32"
+          },
+          "wifiSavedSsids": {
+            "$index": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 32"
+            }
           },
           "wifiChangeId": {
             ".validate": "newData.isString() && newData.val().length <= 64"

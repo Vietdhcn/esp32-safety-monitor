@@ -43,8 +43,11 @@ export function chuanHoaDuLieu(giaTri = {}) {
     resetReason: lyDoKhoiDong.includes(duLieu.resetReason) ? duLieu.resetReason : null,
     temperatureC: soDoHopLe(duLieu.temperatureC, -40, 80),
     humidityPct: soDoHopLe(duLieu.humidityPct, 0, 100), updatedAt: soDoHopLe(duLieu.updatedAt, 1, Number.MAX_SAFE_INTEGER),
-    wifiConfigVersion: duLieu.wifiConfigVersion === 1 ? 1 : null,
+    wifiConfigVersion: [1, 2].includes(duLieu.wifiConfigVersion) ? duLieu.wifiConfigVersion : null,
     wifiSsid: typeof duLieu.wifiSsid === 'string' && new TextEncoder().encode(duLieu.wifiSsid).length <= 32 ? duLieu.wifiSsid : null,
+    wifiSavedSsids: Array.isArray(duLieu.wifiSavedSsids) ? [...new Set(duLieu.wifiSavedSsids.filter(
+      ssid => typeof ssid === 'string' && ssid.trim() && new TextEncoder().encode(ssid).length <= 32
+    ))].slice(0, 8) : [],
     wifiChangeId: typeof duLieu.wifiChangeId === 'string' && duLieu.wifiChangeId.length <= 64 ? duLieu.wifiChangeId : null,
     wifiChangeStatus: trangThaiDoiWifi.includes(duLieu.wifiChangeStatus) ? duLieu.wifiChangeStatus : null
   };

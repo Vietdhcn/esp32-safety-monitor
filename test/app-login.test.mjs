@@ -419,7 +419,8 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.ok(nodes.get('operator-list').children.some(row => row.children.some(child =>
     child.textContent?.includes('old-uid'))), 'older accounts fall back to UID');
   assert.equal(nodes.get('wifi-settings-section').hidden, false);
-  state.reading({ val: () => ({ ...safe, wifiConfigVersion: 1, wifiSsid: 'Old network', updatedAt: Date.now() }) });
+  state.reading({ val: () => ({ ...safe, wifiConfigVersion: 2, wifiSsid: 'Old network',
+    wifiSavedSsids: ['Old network'], updatedAt: Date.now() }) });
   assert.equal(nodes.get('wifi-current-ssid').textContent, 'Old network');
   nodes.get('show-wifi-password').checked = true;
   nodes.get('show-wifi-password').listeners.change();
@@ -437,9 +438,13 @@ test('authenticated controls send atomic commands and await device acknowledgeme
   assert.equal(nodes.get('wifi-password').value, '', 'browser clears the entered password after sending');
   assert.equal([...storage.values()].some(value => value.includes('new-password')), false);
   const wifiRequestId = state.grant.value.requestId;
-  state.reading({ val: () => ({ ...safe, wifiConfigVersion: 1, wifiSsid: 'New network',
+  state.reading({ val: () => ({ ...safe, wifiConfigVersion: 2, wifiSsid: 'New network',
+    wifiSavedSsids: ['Old network', 'New network'],
     wifiChangeId: wifiRequestId, wifiChangeStatus: 'applied', updatedAt: Date.now() }) });
   assert.match(nodes.get('wifi-settings-status').textContent, /đã kết nối/i);
+  assert.deepEqual(nodes.get('wifi-saved-list').children.map(item => item.textContent),
+    ['Old network', 'New network']);
+  assert.equal(nodes.get('wifi-saved-list').children[1].dataset.active, 'true');
   nodes.get('wifi-ssid').value = 'Another network';
   nodes.get('wifi-password').value = 'short';
   await nodes.get('wifi-settings-form').listeners.submit({ preventDefault() {} });

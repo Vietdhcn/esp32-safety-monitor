@@ -19,3 +19,10 @@ test('Wi-Fi result telemetry exposes network status but never a password', () =>
   assert.equal('wifiPassword' in reading, false);
   assert.equal(model.chuanHoaDuLieu({ wifiConfigVersion: 99, wifiChangeStatus: 'unknown' }).wifiConfigVersion, null);
 });
+
+test('Wi-Fi telemetry lists only distinct saved network names', () => {
+  const reading = model.chuanHoaDuLieu({ wifiConfigVersion: 2, wifiSsid: 'Viet',
+    wifiSavedSsids: ['Viet', 'Guest', 'Viet', '', 'x'.repeat(33), 12] });
+  assert.equal(reading.wifiConfigVersion, 2);
+  assert.deepEqual(reading.wifiSavedSsids, ['Viet', 'Guest']);
+});

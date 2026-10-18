@@ -214,27 +214,43 @@ form input[type="email"]:focus, form input[type="password"]:focus, form input[ty
 .check input { width: 18px; height: 18px; accent-color: var(--accent); }
 .form-error { min-height: 20px; color: var(--danger); font-size: 13px; }
 .account-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.account-grid:has(#create-account-section[hidden]) { width: 100%; max-width: 560px; margin-inline: auto; grid-template-columns: minmax(0, 1fr); }
 .account-card { min-width: 0; padding: 20px 24px 16px; }
 .account-card h3 { font-size: 18px; margin-bottom: 6px; }
 .account-card > p { margin-bottom: 20px; }
 .account-card form { max-width: 440px; }
 .account-card .button { align-self: flex-start; }
 #wifi-current-ssid { overflow-wrap: anywhere; }
+.wifi-list-heading { margin: 0 0 6px !important; color: var(--text-2); font-size: 13px; }
+.wifi-saved-list { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0 0 18px; padding: 0; }
+.wifi-saved-list li { max-width: 100%; padding: 5px 9px; border: 1px solid var(--stroke); border-radius: var(--radius-sm); overflow-wrap: anywhere; font-size: 13px; }
+.wifi-saved-list li[data-active="true"] { border-color: var(--accent); color: var(--accent); }
 .form-status { min-block-size: 2lh; margin-top: 6px; color: var(--success); }
 .form-status[data-error="true"] { color: var(--danger); }
 .form-status:empty { display: none; }
-.operator-card { grid-column: 1 / -1; }
-.operator-card > p { margin-bottom: 12px; }
+.operator-card, #wifi-settings-section { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }
+.operator-card > h3 { grid-column: 1; grid-row: 1; }
+.operator-card > p.subtle:not(#operator-list-status) { grid-column: 1; grid-row: 2; margin-bottom: 12px; }
+#operator-list-status { grid-column: 1; grid-row: 3; margin: 0; }
+#operator-list-status:empty { display: none; }
+.operator-card .operator-list { grid-column: 2; grid-row: 1 / span 3; align-self: start; padding-left: 24px; border-left: 1px solid var(--stroke); }
+#operator-action-status { grid-column: 2; grid-row: 4; }
+.wifi-summary { grid-column: 1; grid-row: 1; align-self: start; min-width: 0; }
+.wifi-summary > p.subtle { margin-bottom: 18px; }
+.wifi-summary > .wifi-saved-list { margin-bottom: 0; }
+#wifi-settings-form { grid-column: 2; grid-row: 1; max-width: none; padding-left: 24px; border-left: 1px solid var(--stroke); }
+.wifi-form-title { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
 .operator-card .form-status { min-block-size: 1lh; margin-top: 4px; }
 .operator-list { list-style: none; margin: 0; padding: 0; }
-.operator-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px 16px; padding: 12px 0; border-top: 1px solid var(--stroke); }
+.operator-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 12px 0; border-top: 1px solid var(--stroke); }
+.operator-row:first-child { padding-top: 0; border-top: 0; }
 .operator-row strong, .operator-row small { min-width: 0; overflow-wrap: anywhere; }
 .operator-row strong { grid-column: 1; grid-row: 1; }
 .operator-row small { color: var(--text-2); }
 .operator-row small { grid-column: 1; grid-row: 2; }
-.operator-state { grid-column: 2; grid-row: 1 / span 2; color: var(--success); font-size: 13px; }
+.operator-state { grid-column: 2; grid-row: 1; justify-self: end; color: var(--success); font-size: 13px; }
 .operator-state[data-active="false"] { color: var(--text-2); }
-.operator-row .button { grid-column: 3; grid-row: 1 / span 2; min-width: 120px; }
+.operator-row .button { grid-column: 2; grid-row: 2; justify-self: end; min-width: 120px; }
 
 /* Thẻ chỉ số */
 .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
@@ -323,6 +339,8 @@ form input[type="email"]:focus, form input[type="password"]:focus, form input[ty
   .login { grid-template-columns: 1fr; padding: 20px; }
   .account-grid { grid-template-columns: 1fr; }
   .account-card { padding: 20px 20px 16px; }
+  .operator-card, #wifi-settings-section { display: block; }
+  .operator-card .operator-list, #wifi-settings-form { margin-top: 12px; padding: 14px 0 0; border-left: 0; border-top: 1px solid var(--stroke); }
   .operator-row { grid-template-columns: minmax(0, 1fr) auto; }
   .operator-row .button { grid-column: 1 / -1; grid-row: 3; justify-self: start; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

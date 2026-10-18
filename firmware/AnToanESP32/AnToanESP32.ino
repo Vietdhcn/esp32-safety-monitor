@@ -76,37 +76,107 @@ TaskHandle_t firebaseTaskHandle = nullptr;
 const char* resetReason = "other";
 char activeWifiSsid[33] = WIFI_SSID;
 char activeWifiPassword[65] = WIFI_PASSWORD;
+constexpr size_t MAX_WIFI_NETWORKS = 8;
+struct WifiProfile {
+  char ssid[33] = "";
+  char password[65] = "";
+};
+WifiProfile wifiProfiles[MAX_WIFI_NETWORKS];
+size_t wifiProfileCount = 0;
 char wifiChangeId[65] = "";
 char wifiChangeStatus[16] = "";
 bool wifiSwitchInProgress = false;
 String lastWifiRequestId;
 
+void setActiveWifi(const char* ssid, const char* password) {
+  portENTER_CRITICAL(&stateLock);
+  const bool changed = strcmp(activeWifiSsid, ssid) != 0;
+  strlcpy(activeWifiSsid, ssid, sizeof(activeWifiSsid));
+  strlcpy(activeWifiPassword, password, sizeof(activeWifiPassword));
+  if (changed) ++dataVersion;
+  portEXIT_CRITICAL(&stateLock);
+  if (changed) notifyFirebaseTask();
+}
+
+void addLoadedWifi(const char* ssid, const char* password) {
+  if (!wifiCredentialsValid(ssid, password)) return;
+  size_t index = 0;
+  while (index < wifiProfileCount && strcmp(wifiProfiles[index].ssid, ssid) != 0) ++index;
+  if (index == wifiProfileCount) {
+    if (wifiProfileCount == MAX_WIFI_NETWORKS) return;
+    ++wifiProfileCount;
+  }
+  strlcpy(wifiProfiles[index].ssid, ssid, sizeof(wifiProfiles[index].ssid));
+  strlcpy(wifiProfiles[index].password, password, sizeof(wifiProfiles[index].password));
+}
+
 void loadSavedWifi() {
+  addLoadedWifi(WIFI_SSID, WIFI_PASSWORD);
   Preferences preferences;
   if (!preferences.begin("safety-wifi", true)) return;
   lastWifiRequestId = preferences.getString("last-wifi-id", "");
+  const String networks = preferences.getString("networks", "");
   const String saved = preferences.getString("credentials", "");
   preferences.end();
+  JsonDocument list;
+  if (deserializeJson(list, networks) == DeserializationError::Ok && list.is<JsonArray>()) {
+    wifiProfileCount = 0;
+    for (JsonObjectConst profile : list.as<JsonArrayConst>()) {
+      addLoadedWifi(profile["ssid"] | "", profile["password"] | "");
+    }
+    if (wifiProfileCount > 0) {
+      setActiveWifi(wifiProfiles[wifiProfileCount - 1].ssid, wifiProfiles[wifiProfileCount - 1].password);
+      Serial.printf("Loaded %u saved WiFi networks\n", static_cast<unsigned>(wifiProfileCount));
+      return;
+    }
+    addLoadedWifi(WIFI_SSID, WIFI_PASSWORD);
+  }
   JsonDocument credentials;
   if (deserializeJson(credentials, saved) != DeserializationError::Ok) return;
   const char* ssid = credentials["ssid"] | "";
   const char* password = credentials["password"] | "";
   if (!wifiCredentialsValid(ssid, password)) return;
-  strlcpy(activeWifiSsid, ssid, sizeof(activeWifiSsid));
-  strlcpy(activeWifiPassword, password, sizeof(activeWifiPassword));
-  Serial.println("Loaded saved WiFi credentials");
+  addLoadedWifi(ssid, password);
+  setActiveWifi(ssid, password);
+  Serial.printf("Migrated %u WiFi networks\n", static_cast<unsigned>(wifiProfileCount));
 }
 
 bool saveWifi(const char* ssid, const char* password) {
+  WifiProfile updated[MAX_WIFI_NETWORKS];
+  size_t count = 0;
+  // The newest network goes last. When full, keep the seven most recent others.
+  for (size_t index = 0; index < wifiProfileCount; ++index) {
+    if (strcmp(wifiProfiles[index].ssid, ssid) == 0) continue;
+    if (count == MAX_WIFI_NETWORKS - 1) {
+      memmove(updated, updated + 1, sizeof(WifiProfile) * (MAX_WIFI_NETWORKS - 2));
+      --count;
+    }
+    updated[count++] = wifiProfiles[index];
+  }
+  strlcpy(updated[count].ssid, ssid, sizeof(updated[count].ssid));
+  strlcpy(updated[count].password, password, sizeof(updated[count].password));
+  ++count;
   JsonDocument credentials;
-  credentials["ssid"] = ssid;
-  credentials["password"] = password;
+  JsonArray list = credentials.to<JsonArray>();
+  for (size_t index = 0; index < count; ++index) {
+    JsonObject profile = list.add<JsonObject>();
+    profile["ssid"] = updated[index].ssid;
+    profile["password"] = updated[index].password;
+  }
   String saved;
   serializeJson(credentials, saved);
   Preferences preferences;
   if (!preferences.begin("safety-wifi", false)) return false;
-  const bool stored = preferences.putString("credentials", saved) == saved.length();
+  const bool stored = preferences.putString("networks", saved) == saved.length();
   preferences.end();
+  if (stored) {
+    portENTER_CRITICAL(&stateLock);
+    memcpy(wifiProfiles, updated, sizeof(WifiProfile) * count);
+    wifiProfileCount = count;
+    ++dataVersion;
+    portEXIT_CRITICAL(&stateLock);
+    notifyFirebaseTask();
+  }
   return stored;
 }
 
@@ -345,6 +415,12 @@ uint32_t commandStreamGeneration = 0;
 portMUX_TYPE commandStreamTokenLock = portMUX_INITIALIZER_UNLOCKED;
 
 void connectWifi() {
+  WifiProfile known[MAX_WIFI_NETWORKS];
+  size_t knownCount;
+  portENTER_CRITICAL(&stateLock);
+  knownCount = wifiProfileCount;
+  memcpy(known, wifiProfiles, sizeof(WifiProfile) * knownCount);
+  portEXIT_CRITICAL(&stateLock);
   static bool eventHandlerInstalled = false;
   if (!eventHandlerInstalled) {
     WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
@@ -360,27 +436,40 @@ void connectWifi() {
   delay(250);
   WiFi.mode(WIFI_STA);
   const int networkCount = WiFi.scanNetworks(false, true);
-  struct WifiNetwork { int32_t channel; uint8_t bssid[6]; };
-  WifiNetwork matchingNetworks[8];
+  struct WifiNetwork { int32_t channel; int32_t rssi; uint8_t bssid[6]; uint8_t profileIndex; };
+  WifiNetwork matchingNetworks[16];
   int matchCount = 0;
-  for (int index = 0; index < networkCount && matchCount < 8; ++index) {
-    if (WiFi.SSID(index) == activeWifiSsid) {
-      matchingNetworks[matchCount].channel = WiFi.channel(index);
-      memcpy(matchingNetworks[matchCount].bssid, WiFi.BSSID(index), 6);
-      ++matchCount;
+  for (int index = 0; index < networkCount; ++index) {
+    for (size_t profile = 0; profile < knownCount; ++profile) {
+      if (WiFi.SSID(index) != known[profile].ssid) continue;
+      WifiNetwork candidate = { WiFi.channel(index), WiFi.RSSI(index), {}, static_cast<uint8_t>(profile) };
+      memcpy(candidate.bssid, WiFi.BSSID(index), sizeof(candidate.bssid));
+      int place = 0;
+      while (place < matchCount && matchingNetworks[place].rssi >= candidate.rssi) ++place;
+      if (place < 16) {
+        if (matchCount < 16) ++matchCount;
+        for (int move = matchCount - 1; move > place; --move) matchingNetworks[move] = matchingNetworks[move - 1];
+        matchingNetworks[place] = candidate;
+      }
+      break;
     }
   }
   Serial.printf("WiFi scan count=%d targetCount=%d\n", networkCount, matchCount);
   WiFi.scanDelete();
   for (int index = 0; index < matchCount; ++index) {
-    WiFi.begin(activeWifiSsid, activeWifiPassword, matchingNetworks[index].channel, matchingNetworks[index].bssid);
+    const WifiProfile& profile = known[matchingNetworks[index].profileIndex];
+    WiFi.begin(profile.ssid, profile.password, matchingNetworks[index].channel, matchingNetworks[index].bssid);
     const unsigned long startedAt = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - startedAt < 12000) {
+    while (WiFi.status() != WL_CONNECTED && millis() - startedAt < 8000) {
       delay(100);
     }
     const bool connected = WiFi.status() == WL_CONNECTED;
-    Serial.printf("WiFi candidate channel=%d connected=%d\n", matchingNetworks[index].channel, connected);
-    if (connected) break;
+    Serial.printf("WiFi candidate SSID=%s channel=%d connected=%d\n",
+                  profile.ssid, matchingNetworks[index].channel, connected);
+    if (connected) {
+      setActiveWifi(profile.ssid, profile.password);
+      break;
+    }
     WiFi.disconnect(false, false);
     delay(500);
   }
@@ -591,7 +680,8 @@ void clearWifiRequest(const char* token) {
     return;
   }
   HTTPClient put;
-  if (!put.begin(cleanupClient, url + "&print=silent")) return;
+  // Firebase rejects conditional requests combined with print=silent.
+  if (!put.begin(cleanupClient, url)) return;
   put.setConnectTimeout(4000);
   put.setTimeout(3500);
   put.addHeader("Content-Type", "application/json");
@@ -599,7 +689,7 @@ void clearWifiRequest(const char* token) {
   const int deleteStatus = put.PUT("null");
   put.end();
   cleanupClient.stop();
-  wifiCleanupPending = deleteStatus != 204 && deleteStatus != 200 && deleteStatus != 412;
+  wifiCleanupPending = deleteStatus != 200 && deleteStatus != 412;
   if (wifiCleanupPending) Serial.printf("WiFi request cleanup write HTTP %d\n", deleteStatus);
 }
 
@@ -628,15 +718,13 @@ void applyPendingWifiChange(const char* token) {
   }
 
   if (verified && saveWifi(request.ssid, request.password)) {
-    portENTER_CRITICAL(&stateLock);
-    strlcpy(activeWifiSsid, request.ssid, sizeof(activeWifiSsid));
-    strlcpy(activeWifiPassword, request.password, sizeof(activeWifiPassword));
-    portEXIT_CRITICAL(&stateLock);
+    setActiveWifi(request.ssid, request.password);
     WiFi.setAutoReconnect(true);
-    Serial.printf("WiFi change applied for SSID=%s\n", request.ssid);
+    Serial.printf("WiFi network saved for SSID=%s (total=%u)\n", request.ssid,
+                  static_cast<unsigned>(wifiProfileCount));
     setWifiChange(request.requestId, "applied", false);
   } else {
-    Serial.println("WiFi change failed; restoring previous network");
+    Serial.println("WiFi change failed; trying saved networks");
     connectWifi();
     setWifiChange(request.requestId, "failed", false);
   }
@@ -761,7 +849,7 @@ int sendFirebaseData(const DeviceState& current) {
   data["statusLedMode"] = modeName(current.greenLedMode);
   data["buzzerMode"] = modeName(current.buzzerMode);
   data["controlsVersion"] = 2;
-  data["wifiConfigVersion"] = 1;
+  data["wifiConfigVersion"] = 2;
   data["logicVersion"] = FIRMWARE_LOGIC_VERSION;
   data["muteUntil"] = current.muteUntil;
   data["gasWarmup"] = current.gasWarmup;
@@ -773,12 +861,20 @@ int sendFirebaseData(const DeviceState& current) {
   char reportedSsid[sizeof(activeWifiSsid)];
   char reportedWifiChangeId[sizeof(wifiChangeId)];
   char reportedWifiChangeStatus[sizeof(wifiChangeStatus)];
+  char reportedSavedSsids[MAX_WIFI_NETWORKS][33];
+  size_t reportedNetworkCount;
   portENTER_CRITICAL(&stateLock);
   strlcpy(reportedSsid, activeWifiSsid, sizeof(reportedSsid));
   strlcpy(reportedWifiChangeId, wifiChangeId, sizeof(reportedWifiChangeId));
   strlcpy(reportedWifiChangeStatus, wifiChangeStatus, sizeof(reportedWifiChangeStatus));
+  reportedNetworkCount = wifiProfileCount;
+  for (size_t index = 0; index < reportedNetworkCount; ++index) {
+    strlcpy(reportedSavedSsids[index], wifiProfiles[index].ssid, sizeof(reportedSavedSsids[index]));
+  }
   portEXIT_CRITICAL(&stateLock);
   data["wifiSsid"] = reportedSsid;
+  JsonArray savedSsids = data["wifiSavedSsids"].to<JsonArray>();
+  for (size_t index = 0; index < reportedNetworkCount; ++index) savedSsids.add(reportedSavedSsids[index]);
   data["wifiChangeId"] = reportedWifiChangeId;
   if (reportedWifiChangeStatus[0]) data["wifiChangeStatus"] = reportedWifiChangeStatus;
   float currentTemperature;
