@@ -1,4 +1,4 @@
-import { firebaseConfig, deviceId, ownerUid } from './config.js';
+import { firebaseConfig, deviceId, ownerUid } from './config.js?v=20261018-1';
 import { chuanHoaDuLieu, duLieuCu, thietBiNgoaiTuyen, laMoPhongNoiBo, taoDuLieuMoPhong, cacCheDo, luaChonMauDen, lenhDen, coTheDieuKhien, coTheTamTat, dangTamTat, tamTatTatCa, laLogicMoi, lenhHopLe, tienDoLenh, loiCauHinhWifi } from './dashboard-model.js?v=20261018-4';
 import { cacThayDoiLichSu, themLichSu, lichSuThaoTac, locLichSu, xoaLichSuTheoNguon, lamSachLichSuHeThongCu } from './history-model.js?v=20261017-1';
 
